@@ -9,6 +9,7 @@ class EventsController < ApplicationController
   end
 
   def show
+    @rsvp = @event.rsvp_for(Current.user)
   end
 
   def new
