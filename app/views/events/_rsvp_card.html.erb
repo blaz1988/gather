@@ -1,0 +1,20 @@
+<div class="rsvp-card" id="rsvp-card">
+  <% if @event.organized_by?(Current.user) %>
+    <p class="muted small">You're organizing this event.</p>
+  <% elsif !@event.rsvps_open? %>
+    <p class="muted small">This event has started, so RSVPs are closed.</p>
+  <% elsif !authenticated? %>
+    <%= link_to "Sign in to RSVP", new_session_path, class: "button" %>
+  <% elsif @rsvp&.going? %>
+    <p class="rsvp-card__status"><span class="badge badge--success">You're going</span></p>
+    <%= button_to "Cancel RSVP", event_rsvp_path(@event), method: :delete, class: "button button--danger",
+          data: { turbo_submits_with: "Cancelling…" } %>
+  <% elsif @rsvp&.waitlisted? %>
+    <p class="rsvp-card__status"><span class="badge badge--warning">You're #<%= @rsvp.waitlist_position %> on the waitlist</span></p>
+    <%= button_to "Leave waitlist", event_rsvp_path(@event), method: :delete, class: "button button--ghost",
+          data: { turbo_submits_with: "Leaving…" } %>
+  <% else %>
+    <%= button_to @event.full? ? "Join waitlist" : "RSVP", event_rsvp_path(@event), class: "button",
+          data: { turbo_submits_with: "Saving…" } %>
+  <% end %>
+</div>

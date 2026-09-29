@@ -104,3 +104,47 @@ end
 Then("there are no RSVPs") do
   expect(Rsvp.count).to eq(0)
 end
+
+def submit_to_rsvp(verb, event_id, params = {})
+  page.driver.submit verb.downcase.to_sym, event_rsvp_path(event_id:), params
+end
+
+When("I send a {word} to the RSVP of {string}") do |verb, title|
+  submit_to_rsvp(verb, event_named(title).id)
+end
+
+When("I send a {word} to the RSVP of {string} as {string} with status {string}") do |verb, title, name, status|
+  user_id = person(name).id
+  submit_to_rsvp(verb, event_named(title).id, user_id:, status:, rsvp: { user_id:, status: })
+end
+
+When("I send a {word} to the RSVP of an unknown event") do |verb|
+  submit_to_rsvp(verb, 0)
+end
+
+Then("I am asked to sign in") do
+  expect(page).to have_current_path(new_session_path)
+end
+
+Then("the response is 404 Not Found") do
+  expect(page.status_code).to eq(404)
+end
+
+Then("I should see a {string} button") do |label|
+  expect(page).to have_button(label, exact: true)
+end
+
+Then("I should not see a {string} button") do |label|
+  expect(page).to have_no_button(label, exact: true)
+end
+
+Then("I should see a {string} link") do |label|
+  expect(page).to have_link(label, exact: true)
+end
+
+Then("I should see no RSVP buttons") do
+  within("#event-facts") do
+    [ "RSVP", "Join waitlist", "Cancel RSVP", "Leave waitlist" ].each { expect(page).to have_no_button(it, exact: true) }
+    expect(page).to have_no_link("Sign in to RSVP")
+  end
+end
