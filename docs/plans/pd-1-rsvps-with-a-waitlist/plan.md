@@ -1,6 +1,6 @@
 # PD-1: RSVPs with a waitlist
 
-*Status: ticketed · Revision 3 · Created by Ivan Blažević <ivan.blazevic@rubycode.co> · 29 September 2026*
+*Status: tickets approved · Revision 3 · Created by Ivan Blažević <ivan.blazevic@rubycode.co> · 29 September 2026*
 
 # Overview
 
@@ -203,11 +203,11 @@ Email notifications, paid tickets, guests (+1), and changing capacity after peop
 
 | # | Title | Type | Kind | Estimate | Depends | Issue |
 | --- | --- | --- | --- | --- | --- | --- |
-| T1 | Migration: Create rsvps table | TASK | migration | 1 | - | - |
-| T2 | Add Rsvp model and Event rules for RSVP, cancel, waitlist and promotion | TASK | code | 5 | T1 | - |
-| T3 | Let signed-in people RSVP, join the waitlist and cancel from the event page | STORY | code | 5 | T2 | - |
-| T4 | Show the organizer who is going and who is waiting | STORY | code | 3 | T3 | - |
-| T5 | Show seats left on the events index | STORY | code | 2 | T2 | - |
+| T1 | Migration: Create rsvps table | TASK | migration | 1 | - | [#3](https://github.com/blaz1988/gather/issues/3) |
+| T2 | Add Rsvp model and Event rules for RSVP, cancel, waitlist and promotion | TASK | code | 5 | T1 | [#4](https://github.com/blaz1988/gather/issues/4) |
+| T3 | Let signed-in people RSVP, join the waitlist and cancel from the event page | STORY | code | 5 | T2 | [#5](https://github.com/blaz1988/gather/issues/5) |
+| T4 | Show the organizer who is going and who is waiting | STORY | code | 3 | T3 | [#6](https://github.com/blaz1988/gather/issues/6) |
+| T5 | Show seats left on the events index | STORY | code | 2 | T2 | [#7](https://github.com/blaz1988/gather/issues/7) |
 
 **Estimated total: 16 points**
 
