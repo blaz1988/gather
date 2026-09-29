@@ -8,7 +8,7 @@ Feature: Browsing events
     Given I am not signed in
     When I visit the events page
     Then I should see "Ruby Zagreb Meetup #42"
-    And I should see "Organized by Ana Kovač · 3 seats"
+    And I should see "Organized by Ana Kovač · 3 of 3 seats left"
 
   Scenario: The organizer sees an edit link
     Given I am signed in as "Ana Kovač"

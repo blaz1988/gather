@@ -9,6 +9,58 @@ RSpec.describe "Events", type: :request do
     expect(response.body).to include("Ruby Zagreb Meetup", "Organized by Ana Kovač")
   end
 
+  describe "seats left on the index" do
+    let!(:event) { create(:event, title: "Ruby Zagreb Meetup", organizer: organizer, capacity: 3) }
+
+    def seats_label
+      get events_path
+      Nokogiri::HTML(response.body).at_css("##{ActionView::RecordIdentifier.dom_id(event)}").text.squish
+    end
+
+    it "shows every seat left when nobody has RSVPed" do
+      expect(seats_label).to include("3 of 3 seats left")
+    end
+
+    it "counts going RSVPs as taken seats" do
+      create(:rsvp, event: event)
+      expect(seats_label).to include("2 of 3 seats left")
+    end
+
+    it "shows Full when every seat is taken" do
+      create_list(:rsvp, 3, event: event)
+      label = seats_label
+      expect(label).to include("Full")
+      expect(label).not_to include("seats left")
+    end
+
+    it "does not count waitlisted RSVPs" do
+      create(:rsvp, event: event)
+      create(:rsvp, :waitlisted, event: event)
+      expect(seats_label).to include("2 of 3 seats left")
+    end
+
+    it "shows Full and never a negative number when capacity drops below the going count" do
+      create_list(:rsvp, 3, event: event)
+      event.update!(capacity: 1)
+      label = seats_label
+      expect(label).to include("Full")
+      expect(label).not_to include("-2")
+    end
+
+    it "loads the going counts of every listed event in a single rsvps query" do
+      others = create_list(:event, 3, capacity: 5)
+      others.each { create(:rsvp, event: it) }
+      create(:rsvp, event: event)
+
+      rsvp_queries = []
+      count_rsvps = ->(*, payload) { rsvp_queries << payload[:sql] if payload[:sql].include?('FROM "rsvps"') }
+      ActiveSupport::Notifications.subscribed(count_rsvps, "sql.active_record") { get events_path }
+
+      expect(rsvp_queries.size).to eq(1)
+      expect(response.body).to include("2 of 3 seats left", "4 of 5 seats left")
+    end
+  end
+
   it "shows an event to guests" do
     get event_path(event)
     expect(response).to have_http_status(:ok)

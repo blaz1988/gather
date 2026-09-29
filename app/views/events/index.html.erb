@@ -13,7 +13,7 @@
         <div class="event-card__body">
           <h2 class="event-card__title"><%= event.title %></h2>
           <p class="muted"><%= event_time(event) %> · <%= event.venue %></p>
-          <p class="muted">Organized by <%= event.organizer.name %> · <%= pluralize(event.capacity, "seat") %></p>
+          <p class="muted">Organized by <%= event.organizer.name %> · <%= seats_left_label(event, @going_counts.fetch(event.id, 0)) %></p>
         </div>
       <% end %>
     <% end %>
