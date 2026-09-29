@@ -36,6 +36,7 @@
       <% if @event.organized_by?(Current.user) %>
         <%= link_to "Edit event", edit_event_path(@event), class: "button button--ghost" %>
       <% end %>
+      <%= render "events/attendees" if @rsvps %>
     </aside>
   </div>
 </article>

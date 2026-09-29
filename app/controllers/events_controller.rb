@@ -10,6 +10,7 @@ class EventsController < ApplicationController
 
   def show
     @rsvp = @event.rsvp_for(Current.user)
+    @rsvps = @event.rsvps.includes(:user).in_line_order if @event.organized_by?(Current.user)
   end
 
   def new
