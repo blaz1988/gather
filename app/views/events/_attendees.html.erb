@@ -1,0 +1,25 @@
+<% going, waitlisted = @rsvps.select(&:going?), @rsvps.select(&:waitlisted?) %>
+
+<section class="section attendees" id="attendees">
+  <h3>Going (<%= going.size %>)</h3>
+  <% if going.any? %>
+    <ol class="people" id="going-list">
+      <% going.each do |rsvp| %>
+        <li><%= rsvp.user.name %></li>
+      <% end %>
+    </ol>
+  <% else %>
+    <p class="muted small">Nobody has RSVPed yet.</p>
+  <% end %>
+
+  <h3>Waitlist (<%= waitlisted.size %>)</h3>
+  <% if waitlisted.any? %>
+    <ol class="people" id="waitlist">
+      <% waitlisted.each.with_index(1) do |rsvp, position| %>
+        <li><%= rsvp.user.name %> <span class="badge badge--muted">#<%= position %></span></li>
+      <% end %>
+    </ol>
+  <% else %>
+    <p class="muted small">Nobody is waiting.</p>
+  <% end %>
+</section>
