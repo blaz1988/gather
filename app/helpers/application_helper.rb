@@ -9,4 +9,9 @@ module ApplicationHelper
   def event_time(event)
     event.starts_at.strftime("%A, %-d %B %Y · %H:%M")
   end
+
+  def seats_left_label(event, taken)
+    seats_left = event.seats_left(taken)
+    seats_left.zero? ? "Full" : "#{seats_left} of #{pluralize(event.capacity, "seat")} left"
+  end
 end

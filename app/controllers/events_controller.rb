@@ -6,6 +6,7 @@ class EventsController < ApplicationController
 
   def index
     @events = Event.upcoming.includes(:organizer)
+    @going_counts = Rsvp.going.where(event: @events).group(:event_id).count
   end
 
   def show

@@ -16,8 +16,8 @@ class Event < ApplicationRecord
     @seats_taken ||= rsvps.going.count
   end
 
-  def seats_left
-    [ capacity - seats_taken, 0 ].max
+  def seats_left(taken = seats_taken)
+    [ capacity - taken, 0 ].max
   end
 
   def full?
