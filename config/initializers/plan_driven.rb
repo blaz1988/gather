@@ -1,6 +1,6 @@
 # Keys are never set here. They come from the environment or ~/.plan_driven/config,
 # written by `bin/plan-driven configure`.
-if defined?(PlanDriven)
+if defined?(PlanDriven.configure)
   PlanDriven.configure do |config|
     # Plans and tickets are drafted by Claude Opus 5.5 on our Cursor account. It reads this
     # codebase (read-only) while it writes.
