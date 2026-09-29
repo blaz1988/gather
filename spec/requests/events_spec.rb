@@ -64,6 +64,61 @@ RSpec.describe "Events", type: :request do
     end
   end
 
+  describe "attendee list" do
+    let(:event) { create(:event, organizer: organizer, capacity: 2) }
+    let(:marko) { create(:user, name: "Marko Horvat") }
+    let(:attendees) { [ marko, create(:user, name: "Iva Babić"), create(:user, name: "Luka Perić") ] }
+    let(:email_address) { /person\d+@gather\.test|#{Regexp.escape(organizer.email_address)}/ }
+
+    before { attendees.each { event.rsvp(it) } }
+
+    it "shows the organizer who is going and who is waiting, in line order" do
+      sign_in organizer
+      get event_path(event)
+
+      expect(response.body).to include("Going (2)", "Waitlist (1)")
+      expect(response.body).to match(/Marko Horvat.*Iva Babić.*Waitlist \(1\).*Luka Perić.*#1/m)
+    end
+
+    it "moves the promoted person to Going after a cancellation" do
+      event.rsvp_for(marko).destroy!
+      sign_in organizer
+      get event_path(event)
+
+      expect(response.body).to include("Going (2)", "Waitlist (0)")
+      expect(response.body).to match(/Iva Babić.*Luka Perić.*Waitlist \(0\)/m)
+    end
+
+    it "shows the list to nobody but the organizer" do
+      sign_in marko
+      get event_path(event)
+      expect(response.body).not_to include("Going (", "Waitlist (", "Iva Babić", "Luka Perić")
+
+      delete session_path
+      get event_path(event)
+      expect(response.body).not_to include("Going (", "Waitlist (", "Marko Horvat", "Iva Babić", "Luka Perić")
+    end
+
+    it "renders no email addresses, not even for the organizer" do
+      sign_in organizer
+      get event_path(event)
+      expect(response.body).not_to match(email_address)
+
+      sign_in marko
+      get event_path(event)
+      expect(response.body).not_to match(email_address)
+    end
+
+    it "offers the organizer no controls to remove or reorder people" do
+      sign_in organizer
+      get event_path(event)
+      attendees_html = response.body[/<section[^>]*id="attendees".*?<\/section>/m]
+
+      expect(attendees_html).to be_present
+      expect(attendees_html).not_to match(/<form|<button|<a /)
+    end
+  end
+
   it "asks guests to sign in before creating an event" do
     get new_event_path
     expect(response).to redirect_to(new_session_path)
