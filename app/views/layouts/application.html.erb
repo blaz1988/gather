@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title><%= content_for(:title) || "Gather" %></title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="application-name" content="Gather">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+
+    <%= yield :head %>
+
+    <link rel="icon" href="/icon.png" type="image/png">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
+    <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+  </head>
+
+  <body>
+    <header class="topbar">
+      <div class="container topbar__inner">
+        <%= link_to root_path, class: "brand" do %>
+          <span class="brand__mark">G</span> Gather
+        <% end %>
+        <nav class="topbar__nav">
+          <% if authenticated? %>
+            <%= link_to "New event", new_event_path, class: "button button--small" %>
+            <span class="topbar__user"><%= Current.user.name %></span>
+            <%= button_to "Sign out", session_path, method: :delete, class: "link-button" %>
+          <% else %>
+            <%= link_to "Sign in", new_session_path, class: "button button--small" %>
+          <% end %>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <% flash.each do |type, message| %>
+        <div class="flash flash--<%= type %>"><%= message %></div>
+      <% end %>
+      <%= yield %>
+    </main>
+  </body>
+</html>

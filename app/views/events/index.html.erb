@@ -1,0 +1,23 @@
+<% content_for :title, "Upcoming events · Gather" %>
+
+<section class="hero">
+  <h1>Upcoming events</h1>
+  <p>Meetups, workshops and talks from the Zagreb tech community.</p>
+</section>
+
+<% if @events.any? %>
+  <div class="event-list">
+    <% @events.each do |event| %>
+      <%= link_to event, class: "event-card", id: dom_id(event) do %>
+        <%= event_date_badge(event) %>
+        <div class="event-card__body">
+          <h2 class="event-card__title"><%= event.title %></h2>
+          <p class="muted"><%= event_time(event) %> · <%= event.venue %></p>
+          <p class="muted">Organized by <%= event.organizer.name %> · <%= pluralize(event.capacity, "seat") %></p>
+        </div>
+      <% end %>
+    <% end %>
+  </div>
+<% else %>
+  <p class="empty">No upcoming events yet.</p>
+<% end %>

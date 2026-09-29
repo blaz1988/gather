@@ -1,0 +1,33 @@
+<%= form_with model: event, class: "card form" do |form| %>
+  <% if event.errors.any? %>
+    <div class="flash flash--alert">
+      <% event.errors.full_messages.each do |message| %>
+        <div><%= message %></div>
+      <% end %>
+    </div>
+  <% end %>
+
+  <div class="field">
+    <%= form.label :title %>
+    <%= form.text_field :title, required: true %>
+  </div>
+  <div class="field">
+    <%= form.label :description %>
+    <%= form.text_area :description, rows: 5 %>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <%= form.label :starts_at, "Starts at" %>
+      <%= form.datetime_local_field :starts_at, required: true %>
+    </div>
+    <div class="field">
+      <%= form.label :capacity %>
+      <%= form.number_field :capacity, min: 1, required: true %>
+    </div>
+  </div>
+  <div class="field">
+    <%= form.label :venue %>
+    <%= form.text_field :venue, required: true %>
+  </div>
+  <%= form.submit class: "button" %>
+<% end %>
