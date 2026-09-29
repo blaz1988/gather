@@ -40,6 +40,17 @@ RSpec.describe Event do
       expect(event).to be_full
     end
 
+    it "computes seats left from a preloaded going count without querying rsvps" do
+      event = create(:event, capacity: 3)
+
+      queries = []
+      ActiveSupport::Notifications.subscribed(->(*, payload) { queries << payload[:sql] }, "sql.active_record") do
+        expect(event.seats_left(1)).to eq(2)
+        expect(event.seats_left(5)).to eq(0)
+      end
+      expect(queries).to be_empty
+    end
+
     it "counts seats taken once per instance" do
       event = create(:event)
       create(:rsvp, event:)
