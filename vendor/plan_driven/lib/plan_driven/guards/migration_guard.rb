@@ -16,6 +16,8 @@ module PlanDriven
         | new\s+table:?\s*`?([a-z][a-z0-9_]+)
         | create\s+(?:a\s+|the\s+)?(?:new\s+)?`([a-z][a-z0-9_]+)`\s+table
         | create\s+(?:a\s+|the\s+)?(?:new\s+)?table\s+`?([a-z][a-z0-9_]+)
+        | create:?\s+`([a-z][a-z0-9_]+)`(?!\s+(?:column|index))
+        | _create_([a-z][a-z0-9_]+)\.rb
       /ix
 
       def initialize(text, schema:)
@@ -49,7 +51,7 @@ module PlanDriven
 
       def check_not_null(report)
         existing_tables_mentioned.each do |table|
-          paragraph = paragraph_about(table)
+          paragraph = paragraph_changing(table)
           next unless paragraph.match?(NOT_NULL) && !paragraph.match?(NOT_NULL_SAFE)
 
           report.warning("A NOT NULL change on existing table #{table} has no default or backfill step; " \
@@ -62,7 +64,7 @@ module PlanDriven
         return unless adapter.to_s.match?(/postg/i)
 
         existing_tables_mentioned.each do |table|
-          paragraph = paragraph_about(table)
+          paragraph = paragraph_changing(table)
           next unless paragraph.match?(INDEX) && !paragraph.match?(CONCURRENT)
 
           report.warning("An index on existing table #{table} isn't built concurrently; it locks writes while " \
@@ -74,8 +76,18 @@ module PlanDriven
         @schema.tables.select { |table| @text.match?(/\b#{Regexp.escape(table)}\b/) } - new_tables
       end
 
-      def paragraph_about(table)
-        @text.split(/\n\s*\n|\n(?=#+ )/).grep(/\b#{Regexp.escape(table)}\b/).join("\n")
+      # Paragraphs that change an existing table, not ones that only describe it (plans list the
+      # current schema, "user_id integer, not null", before saying what changes).
+      def paragraph_changing(table)
+        name = Regexp.escape(table)
+        change = /
+          \b(add_column|change_column_null|change_column_default|add_reference|add_belongs_to|add_index|
+             change_table|add_check_constraint)\s*\(?\s*[:"']#{name}\b
+          | \b(add|adds|adding)\b[^.\n]{0,80}\b(to|on)\s+(the\s+)?`?#{name}`?
+          | `?#{name}`?\s+(table\s+)?(gets|gains)\b
+          | \A\#+\s+`?#{name}`?\s*\n[^\n]*\b(add\w*|change\w*|makes?)\b
+        /ix
+        @text.split(/\n\s*\n|\n(?=#+ )/).grep(change).join("\n")
       end
     end
   end
