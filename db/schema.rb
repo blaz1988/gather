@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_29_204626) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_29_214624) do
   create_table "events", force: :cascade do |t|
     t.string "title", null: false
     t.text "description"
@@ -103,6 +103,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_29_204626) do
     t.index ["plan_id"], name: "index_plan_driven_tickets_on_plan_id"
   end
 
+  create_table "rsvps", force: :cascade do |t|
+    t.integer "event_id", null: false
+    t.integer "user_id", null: false
+    t.string "status", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["event_id", "status", "created_at"], name: "index_rsvps_on_event_id_and_status_and_created_at"
+    t.index ["event_id", "user_id"], name: "index_rsvps_on_event_id_and_user_id", unique: true
+    t.index ["user_id"], name: "index_rsvps_on_user_id"
+    t.check_constraint "status IN ('going', 'waitlisted')", name: "rsvps_status_check"
+  end
+
   create_table "sessions", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "ip_address"
@@ -126,5 +138,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_29_204626) do
   add_foreign_key "plan_driven_events", "plan_driven_tickets", column: "ticket_id"
   add_foreign_key "plan_driven_evidence_runs", "plan_driven_plans", column: "plan_id"
   add_foreign_key "plan_driven_tickets", "plan_driven_plans", column: "plan_id"
+  add_foreign_key "rsvps", "events"
+  add_foreign_key "rsvps", "users"
   add_foreign_key "sessions", "users"
 end
