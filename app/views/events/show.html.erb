@@ -23,9 +23,16 @@
         <dd><%= @event.venue %></dd>
         <dt>Organizer</dt>
         <dd><%= @event.organizer.name %></dd>
-        <dt>Capacity</dt>
-        <dd><%= pluralize(@event.capacity, "seat") %></dd>
+        <dt>Seats</dt>
+        <dd>
+          <% if @event.full? %>
+            Full · <%= @event.waitlist_count %> waiting
+          <% else %>
+            Seats left: <%= @event.seats_left %> of <%= @event.capacity %>
+          <% end %>
+        </dd>
       </dl>
+      <%= render "events/rsvp_card" %>
       <% if @event.organized_by?(Current.user) %>
         <%= link_to "Edit event", edit_event_path(@event), class: "button button--ghost" %>
       <% end %>
