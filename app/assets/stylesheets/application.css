@@ -119,7 +119,6 @@ main.container { padding-top: 32px; padding-bottom: 64px; }
 .people li:first-child { border-top: 0; }
 
 /* Comments */
-.comments { padding-top: 16px; border-top: 1px solid var(--border); }
 .comments__list { list-style: none; margin: 0; padding: 0; }
 .comment { padding: 10px 0; border-top: 1px solid var(--border); }
 .comment:first-child { border-top: 0; }

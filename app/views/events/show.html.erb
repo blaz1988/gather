@@ -12,9 +12,12 @@
   </header>
 
   <div class="event__layout">
-    <div class="card event__description">
-      <h2>About this event</h2>
-      <%= simple_format(@event.description) %>
+    <div class="event__main">
+      <div class="card event__description">
+        <h2>About this event</h2>
+        <%= simple_format(@event.description) %>
+      </div>
+      <%= render "events/comments" %>
     </div>
 
     <aside class="card event__facts" id="event-facts">
@@ -33,7 +36,6 @@
         </dd>
       </dl>
       <%= render "events/rsvp_card" %>
-      <%= render "events/comments" %>
       <% if @event.organized_by?(Current.user) %>
         <%= link_to "Edit event", edit_event_path(@event), class: "button button--ghost" %>
       <% end %>

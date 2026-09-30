@@ -179,7 +179,7 @@ RSpec.describe "Events", type: :request do
       Nokogiri::HTML(response.body).at_css("section#comments")
     end
 
-    it "shows guests every comment with its author, posted time and body, right after the RSVP card" do
+    it "shows guests every comment with its author, posted time and body, in the main column below About this event" do
       create(:comment, event: event, user: marko, body: "Is there parking nearby?")
       create(:comment, event: event, user: organizer, body: "Yes, behind the building.")
 
@@ -187,7 +187,8 @@ RSpec.describe "Events", type: :request do
       expect(section.at_css("h2").text).to eq("Comments (2)")
       expect(section.text).to include("Marko Horvat", "Is there parking nearby?", "Ana Kovač", "Yes, behind the building.")
       expect(section.css("time").size).to eq(2)
-      expect(Nokogiri::HTML(response.body).at_css("#rsvp-card + section#comments")).to be_present
+      expect(Nokogiri::HTML(response.body).at_css(".event__main > .event__description + section#comments")).to be_present
+      expect(Nokogiri::HTML(response.body).at_css("#event-facts #comments")).to be_nil
     end
 
     it "lists comments oldest first" do
