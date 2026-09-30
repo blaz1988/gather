@@ -34,6 +34,35 @@ RSpec.describe Comment do
     expect(event.comments.oldest_first).to eq([ earlier, later, same_time ])
   end
 
+  describe ".reaction_counts_for" do
+    it "counts likes and dislikes for several comments in one query" do
+      popular, disliked = create_list(:comment, 2)
+      create_list(:comment_reaction, 2, comment: popular)
+      create(:comment_reaction, :dislike, comment: popular)
+      create(:comment_reaction, :dislike, comment: disliked)
+      create(:comment_reaction)
+
+      queries = []
+      record = ->(*, payload) { queries << payload[:sql] unless payload[:name] == "SCHEMA" }
+      counts = ActiveSupport::Notifications.subscribed(record, "sql.active_record") do
+        described_class.reaction_counts_for([ popular, disliked ])
+      end
+
+      expect(queries.size).to eq(1)
+      expect(counts).to eq(
+        popular.id => { "like" => 2, "dislike" => 1 },
+        disliked.id => { "like" => 0, "dislike" => 1 }
+      )
+    end
+
+    it "returns zeros for comments with no reactions" do
+      legacy = create(:comment)
+      counts = described_class.reaction_counts_for(Comment.where(id: legacy.id).load)
+
+      expect(counts[legacy.id]).to eq("like" => 0, "dislike" => 0)
+    end
+  end
+
   describe "#deletable_by?" do
     let(:comment) { create(:comment) }
 
