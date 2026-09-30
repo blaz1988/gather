@@ -1,0 +1,10 @@
+<section class="card section comments" id="comments">
+  <h2>Comments (<%= @comments.size %>)</h2>
+  <% if @comments.any? %>
+    <ol class="comments__list" id="comments-list">
+      <%= render partial: "comments/comment", collection: @comments %>
+    </ol>
+  <% else %>
+    <p class="muted small">No comments yet. Ask a question.</p>
+  <% end %>
+</section>
