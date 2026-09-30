@@ -10,5 +10,5 @@ class Comment < ApplicationRecord
 
   scope :oldest_first, -> { order(:created_at, :id) }
 
-  def deletable_by?(user) = user.present? && user_id == user.id
+  def deletable_by?(user) = user.present? && (user_id == user.id || event.organized_by?(user))
 end

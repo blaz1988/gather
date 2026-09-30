@@ -41,6 +41,14 @@ RSpec.describe Comment do
       expect(comment.deletable_by?(comment.user)).to be(true)
     end
 
+    it "is true for the event's organizer" do
+      expect(comment.deletable_by?(comment.event.organizer)).to be(true)
+    end
+
+    it "is false for the organizer of a different event" do
+      expect(comment.deletable_by?(create(:event).organizer)).to be(false)
+    end
+
     it "is false for another user" do
       expect(comment.deletable_by?(create(:user))).to be(false)
     end

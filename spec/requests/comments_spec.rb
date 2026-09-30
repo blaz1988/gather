@@ -96,6 +96,28 @@ RSpec.describe "Comments", type: :request do
       )
     end
 
+    it "lets the event's organizer delete someone else's comment and logs it" do
+      sign_in organizer
+      allow(Rails.logger).to receive(:info).and_call_original
+
+      expect { delete event_comment_path(event, comment) }.to change(Comment, :count).by(-1)
+
+      expect(response).to redirect_to(event_path(event, anchor: "comments"))
+      expect(flash[:notice]).to eq("Comment deleted.")
+      expect(Rails.logger).to have_received(:info).with(
+        "Comment deleted: comment_id=#{comment.id} event_id=#{event.id} author_id=#{marko.id} deleted_by=#{organizer.id}"
+      )
+    end
+
+    it "refuses the organizer of a different event and keeps the comment" do
+      sign_in create(:event).organizer
+
+      expect { delete event_comment_path(event, comment) }.not_to change(Comment, :count)
+
+      expect(response).to redirect_to(event_path(event))
+      expect(flash[:alert]).to eq("You can't delete this comment.")
+    end
+
     it "refuses another user and keeps the comment" do
       sign_in create(:user)
 
@@ -129,6 +151,20 @@ RSpec.describe "Comments", type: :request do
       expect(delete_forms.map { it["action"] }).to eq([ event_comment_path(event, own) ])
       expect(delete_forms.first["data-turbo-confirm"]).to eq("Delete this comment?")
       expect(delete_forms.first.at_css("button").text).to eq("Delete")
+    end
+
+    it "shows the organizer a Delete button on every comment on their event" do
+      sign_in organizer
+      get event_path(event)
+
+      expect(delete_forms.map { it["action"] }).to eq([ event_comment_path(event, own), event_comment_path(event, other) ])
+    end
+
+    it "shows the organizer of a different event no Delete button" do
+      sign_in create(:event).organizer
+      get event_path(event)
+
+      expect(delete_forms).to be_empty
     end
 
     it "shows no Delete button to a guest" do
