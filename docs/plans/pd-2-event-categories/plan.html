@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PD-2 Event categories</title>
+<style>@page { size: A4; margin: 18mm 16mm; }
+* { box-sizing: border-box; }
+body { font: 10.5pt/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1f2328; margin: 0; }
+main { max-width: 880px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 21pt; margin: 28px 0 8px; padding-bottom: 6px; border-bottom: 2px solid #d0d7de; }
+h1:first-child { margin-top: 0; font-size: 24pt; border-bottom: 0; }
+h2 { font-size: 14.5pt; margin: 22px 0 6px; }
+h3 { font-size: 12pt; margin: 18px 0 4px; }
+h4 { font-size: 10.5pt; margin: 14px 0 4px; text-transform: uppercase; letter-spacing: .04em; color: #57606a; }
+p { margin: 6px 0 10px; }
+ul, ol { margin: 6px 0 10px; padding-left: 22px; }
+li { margin: 2px 0; }
+em { color: #57606a; }
+code { font: 9pt/1.4 "SFMono-Regular", Menlo, Consolas, monospace; background: #f6f8fa; padding: 1px 4px; border-radius: 4px; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 14px; font-size: 9.5pt; break-inside: auto; }
+th, td { border: 1px solid #d0d7de; padding: 5px 8px; text-align: left; vertical-align: top; }
+th { background: #f6f8fa; font-weight: 600; }
+tr { break-inside: avoid; }
+a { color: #0969da; text-decoration: none; }
+h1, h2, h3 { break-after: avoid; }
+</style>
+</head>
+<body>
+<main>
+<h1>PD-2: Event categories</h1>
+<p><em>Status: in review · Revision 4 · Created by Ivan Blažević &lt;ivan.blazevic@rubycode.co&gt; · 30 September 2026</em></p>
+<h1>Overview</h1>
+<h2>What</h2>
+<p>Organizers pick a category for each event: meetup, workshop, talk or conference. The events index shows the category on every card and can be filtered by it.</p>
+<h2>Why</h2>
+<p>The index mixes big conferences with small meetups, and people can&#39;t find the kind of event they want.</p>
+<h2>Where</h2>
+<p>The events index (/events), and the new and edit event forms.</p>
+<h2>Who</h2>
+<p>Ivan Blažević, Gather team</p>
+<h1>Background</h1>
+<p>Existing events should become meetups.</p>
+<h2>Existing Data Structure</h2>
+<h3>Event (<code>app/models/event.rb</code>, table <code>events</code>)</h3>
+<p>Columns:</p>
+<ul><li><code>id</code> integer, not null</li><li><code>title</code> string, not null</li><li><code>description</code> text, nullable</li><li><code>starts_at</code> datetime, not null (indexed: <code>index_events_on_starts_at</code>)</li><li><code>venue</code> string, not null</li><li><code>capacity</code> integer, not null</li><li><code>organizer_id</code> integer, not null (indexed: <code>index_events_on_organizer_id</code>, foreign key to <code>users</code>)</li><li><code>created_at</code>, <code>updated_at</code> datetime, not null</li></ul>
+<p>Associations and behaviour this change touches:</p>
+<ul><li><code>belongs_to :organizer, class_name: &quot;User&quot;</code></li><li><code>has_many :rsvps</code>, <code>has_many :attendees, through: :rsvps</code></li><li><code>scope :upcoming</code>, which is <code>where(starts_at: Time.current..).order(:starts_at)</code>. The events index is built on this scope.</li><li><code>organized_by?(user)</code>. <code>EventsController#require_organizer</code> uses it to limit edit and update to the organizer.</li></ul>
+<p>Today there is no category, type or kind column on <code>events</code>.</p>
+<h3>User (<code>app/models/user.rb</code>, table <code>users</code>)</h3>
+<p>Columns: <code>id</code>, <code>email_address</code> (unique), <code>password_digest</code>, <code>name</code> (not null, default <code>&quot;&quot;</code>), <code>created_at</code>, <code>updated_at</code>.</p>
+<ul><li><code>has_many :organized_events, class_name: &quot;Event&quot;, foreign_key: :organizer_id</code>. <code>EventsController#create</code> builds events through this association.</li><li><code>has_many :sessions</code>, <code>has_many :rsvps</code>.</li></ul>
+<p>The index card shows the organizer&#39;s name. This change does not alter <code>users</code>.</p>
+<h3>Rsvp (<code>app/models/rsvp.rb</code>, table <code>rsvps</code>)</h3>
+<p>Columns: <code>id</code>, <code>event_id</code>, <code>user_id</code>, <code>status</code> (string, not null, check constraint <code>rsvps_status_check</code> limiting it to <code>going</code> or <code>waitlisted</code>), <code>created_at</code>, <code>updated_at</code>.</p>
+<ul><li><code>belongs_to :event</code>, <code>belongs_to :user</code></li><li><code>enum :status, %w[ going waitlisted ].index_by(&amp;:itself), validate: true</code>. This is the string-enum convention the new column will follow.</li></ul>
+<p>The index runs one grouped query, <code>Rsvp.going.where(event: @events).group(:event_id).count</code>, to show seats left. The filter must keep that query to exactly one. This change does not alter <code>rsvps</code>.</p>
+<h3>Session (<code>app/models/session.rb</code>, table <code>sessions</code>)</h3>
+<p>Not touched.</p>
+<h1>Architectural changes</h1>
+<h3>Target design</h3>
+<p>Each event has exactly one category, stored as a string column <code>events.category</code>. The allowed values are a fixed list: <code>meetup</code>, <code>workshop</code>, <code>talk</code>, <code>conference</code>. There is no separate categories table, because custom categories and several categories per event are out of scope. The column maps to a Rails string-backed enum on <code>Event</code>, the same way <code>Rsvp#status</code> does: <code>enum :category, %w[ meetup workshop talk conference ].index_by(&amp;:itself), validate: true</code>.</p>
+<h3>Data flow</h3>
+<ol><li><strong>Create and edit.</strong> <code>app/views/events/_form.html.erb</code> gets a category field. <code>EventsController#event_params</code> permits <code>:category</code>. Create keeps its current shape (<code>Current.user.organized_events.build(event_params)</code>), and update keeps <code>require_organizer</code>.</li><li><strong>Index.</strong> <code>EventsController#index</code> still starts from <code>Event.upcoming.includes(:organizer)</code>. If <code>params[:category]</code> is one of <code>Event.categories.keys</code>, it adds <code>.where(category: params[:category])</code>. Any other value, or no value, shows all categories. <code>@going_counts</code> stays one grouped query over the filtered <code>@events</code> relation.</li><li><strong>Display.</strong> Each card in <code>app/views/events/index.html.erb</code> shows a category label. A filter bar above the list links to <code>/events</code> (All) and to <code>/events?category=meetup</code>, <code>?category=workshop</code>, and so on. These are plain GET links, so filtered pages can be bookmarked and shared, and no JavaScript is needed.</li></ol>
+<p>The controller keeps its current structure: no new controller, route, service object or job. <code>resources :events</code> in <code>config/routes.rb</code> already serves <code>/events</code> and accepts query parameters.</p>
+<h3>How legacy data coexists during rollout</h3>
+<ul><li><strong>Expand.</strong> The column is added with the database default <code>&#39;meetup&#39;</code> and is nullable at first. From that point, any insert that doesn&#39;t mention <code>category</code> gets <code>meetup</code>. That covers app processes still running the old code during the deploy. On SQLite, existing rows read the default as soon as the column is added.</li><li><strong>Dual write.</strong> No old column is being replaced, so there is nothing to write twice. The database default is the safety net: old code writes nothing, and the database writes <code>meetup</code>.</li><li><strong>Backfill.</strong> A batched, idempotent task sets <code>category = &#39;meetup&#39;</code> wherever it is <code>NULL</code>. This meets the requirement that existing events become meetups, and covers any row the default didn&#39;t reach.</li><li><strong>Switch reads.</strong> The new code, meaning the enum, form field, card label and filter, ships only after the column exists. It treats the category as always present. Until the backfill is confirmed, the card label helper shows nothing, rather than raising an error, if the category is ever <code>nil</code>.</li><li><strong>Contract.</strong> Once no nulls remain, a final migration makes the column <code>NOT NULL</code> and adds a check constraint for the four values. No column is removed or renamed, so <code>ignored_columns</code> is not needed.</li></ul>
+<h3>Suggested ticket split</h3>
+<ol><li>Migration: add the column and the index.</li><li>Backfill task.</li><li>Model enum, strong params and form field.</li><li>Card label and index filter.</li><li>Migration: NOT NULL and check constraint.</li></ol>
+<p>Ticket 3 depends on 1. Ticket 4 depends on 3. Ticket 5 depends on 2 and on the backfill having run in production.</p>
+<h2>Database changes</h2>
+<p>Categories live in their own <code>categories</code> table, and each event points to one of them through <code>events.category_id</code>. The allowed categories are rows in that table, not a list in code. There is no <code>events.category</code> string column and no enum on <code>Event</code>.</p>
+<h3>Step 1: Expand</h3>
+<h4>Migration <code>CreateCategories</code></h4>
+<p>New table <code>categories</code>:</p>
+<ul><li><code>id</code> integer, primary key, not null</li><li><code>name</code> string, <strong>not null</strong>, no default. This is the display label, for example <code>&quot;Meetup&quot;</code>.</li><li><code>slug</code> string, <strong>not null</strong>, no default. This is the stable key used in URLs and code, for example <code>&quot;meetup&quot;</code>. The index filter reads it from <code>?category=workshop</code>.</li><li><code>color</code> string, <strong>not null</strong>, default <code>&quot;#e11d48&quot;</code>. The badge colour on event cards.</li><li><code>created_at</code>, <code>updated_at</code> datetime, not null (<code>t.timestamps</code>)</li><li>Unique index <code>index_categories_on_slug</code> on <code>slug</code>. The index filter looks categories up by slug, and seeding relies on this index to skip rows that already exist.</li><li>Unique index <code>index_categories_on_name</code> on <code>name</code>, so two categories can&#39;t have the same label.</li></ul>
+<pre><code>class CreateCategories &lt; ActiveRecord::Migration[8.1]
+  def change
+    create_table :categories do |t|
+      t.string :name, null: false
+      t.string :slug, null: false
+      t.string :color, null: false, default: &quot;#e11d48&quot;
+
+      t.timestamps
+
+      t.index :slug, unique: true
+      t.index :name, unique: true
+    end
+  end
+end</code></pre>
+<h4>Migration <code>SeedCategories</code> (reference data)</h4>
+<p>This migration inserts the four rows that production needs. It is a separate migration from the table creation, so each one has a single job.</p>
+<table><thead><tr><th>slug</th><th>name</th></tr></thead><tbody><tr><td><code>meetup</code></td><td>Meetup</td></tr><tr><td><code>workshop</code></td><td>Workshop</td></tr><tr><td><code>talk</code></td><td>Talk</td></tr><tr><td><code>conference</code></td><td>Conference</td></tr></tbody></table>
+<p>The migration defines its own small model class instead of loading <code>app/models/category.rb</code>. That way, later changes to the app model can&#39;t break an old migration. It uses <code>insert_all(..., unique_by: :slug)</code>, so running it again skips rows that are already there.</p>
+<pre><code>class SeedCategories &lt; ActiveRecord::Migration[8.1]
+  class MigrationCategory &lt; ActiveRecord::Base
+    self.table_name = &quot;categories&quot;
+  end
+
+  CATEGORIES = {
+    &quot;meetup&quot; =&gt; &quot;Meetup&quot;,
+    &quot;workshop&quot; =&gt; &quot;Workshop&quot;,
+    &quot;talk&quot; =&gt; &quot;Talk&quot;,
+    &quot;conference&quot; =&gt; &quot;Conference&quot;
+  }.freeze
+
+  def up
+    now = Time.current
+    rows = CATEGORIES.map { |slug, name| { slug: slug, name: name, created_at: now, updated_at: now } }
+    MigrationCategory.insert_all(rows, unique_by: :slug)
+  end
+
+  def down
+    MigrationCategory.where(slug: CATEGORIES.keys).delete_all
+  end
+end</code></pre>
+<p><code>db/schema.rb</code> stores the structure only, not rows. So <code>bin/rails db:schema:load</code>, <code>db:prepare</code> on a new database, and the test database will <strong>not</strong> contain these four rows. Two things cover that:</p>
+<ul><li><code>db/seeds.rb</code> also creates them with <code>Category.find_or_create_by!(slug: ...)</code>, before the demo events, so the demo events can be given categories.</li><li>The test suite creates categories through a <code>spec/factories/categories.rb</code> factory. It must never assume the migration&#39;s rows exist.</li></ul>
+<h4>Migration <code>AddCategoryToEvents</code></h4>
+<p>On table <code>events</code>:</p>
+<ul><li>Add column <code>category_id</code>: type <code>integer</code> (<code>add_reference</code>), <strong>nullable</strong>, <strong>no default</strong>. A default isn&#39;t possible because the <code>id</code> of the <code>meetup</code> row isn&#39;t guaranteed to be the same in every environment.</li><li>Add foreign key <code>events.category_id</code> → <code>categories.id</code>, with no <code>on_delete</code>. The database then refuses to delete a category that events still use.</li><li>Add composite index <code>index_events_on_category_id_and_starts_at</code> on <code>[:category_id, :starts_at]</code>. It serves the filtered index query (<code>WHERE category_id = ? AND starts_at &gt;= ? ORDER BY starts_at</code>) and the foreign key lookups. For that reason, the single-column index that <code>add_reference</code> would normally create is left out, following the pattern in <code>CreateRsvps</code>. The existing <code>index_events_on_starts_at</code> keeps serving the unfiltered index.</li></ul>
+<pre><code>class AddCategoryToEvents &lt; ActiveRecord::Migration[8.1]
+  def change
+    # The [category_id, starts_at] index already leads with category_id.
+    add_reference :events, :category, null: true, foreign_key: true, index: false
+    add_index :events, [ :category_id, :starts_at ]
+  end
+end</code></pre>
+<p>This step only adds things. Old code never reads <code>category_id</code>, and any event it inserts gets <code>NULL</code>, which the column allows. On SQLite, adding a foreign key to an existing table may make Rails rebuild <code>events</code>, which <code>rsvps.event_id</code> references. Run all three migrations on a copy of production data first.</p>
+<h3>Step 2: Dual write (application code, no schema change)</h3>
+<p>No old column is being replaced, so nothing is written twice. &quot;Dual write&quot; here means that from this release on, every create and update path sets <code>category_id</code>:</p>
+<ul><li>The form submits <code>category_id</code>.</li><li><code>Event</code> assigns the <code>meetup</code> category to a new record that has no category, if Outstanding question 3 is answered that way.</li></ul>
+<p>During the deploy, events created by processes still running the old code keep <code>category_id = NULL</code>. The backfill runs after this step so it also catches those rows.</p>
+<h3>Step 3: Backfill (data task, not a schema change)</h3>
+<p>Run this only after the step 2 code is live on every process.</p>
+<p>The task is <code>events:backfill_category</code> in <code>lib/tasks/events.rake</code>:</p>
+<ol><li>Look up the meetup category with <code>Category.find_by!(slug: &quot;meetup&quot;)</code>. If the row is missing, the task fails loudly instead of doing nothing.</li><li>Run <code>Event.where(category_id: nil).in_batches(of: 1_000).update_all(category_id: meetup.id)</code>.</li><li>Log the number of rows updated.</li></ol>
+<p>The task is idempotent and safe to re-run. It covers all events, past and upcoming (see Outstanding questions 1). <code>update_all</code> skips validations and callbacks and does not change <code>updated_at</code>.</p>
+<p>Before step 5, confirm <code>Event.where(category_id: nil).count == 0</code> in production.</p>
+<h3>Step 4: Switch reads (application code, no schema change)</h3>
+<p>The card label, the filter (<code>params[:category]</code> → <code>Category.find_by(slug:)</code> → <code>where(category_id:)</code>) and the edit form read <code>category_id</code>. Until step 5 ships, the card label shows nothing if <code>category_id</code> is <code>NULL</code>, instead of raising an error.</p>
+<h3>Step 5: Contract (migration <code>EnforceCategoryOnEvents</code>)</h3>
+<p>Run this only after the check in step 3 returns zero.</p>
+<ul><li><code>change_column_null :events, :category_id, false</code>.</li><li>The column still has no default. New rows get their category from the application, and the NOT NULL constraint rejects any path that forgets it.</li><li>No check constraint is needed. The foreign key already limits values to existing <code>categories</code> rows.</li></ul>
+<pre><code>class EnforceCategoryOnEvents &lt; ActiveRecord::Migration[8.1]
+  def change
+    change_column_null :events, :category_id, false
+  end
+end</code></pre>
+<p>On SQLite, <code>change_column_null</code> rebuilds the <code>events</code> table. Rails&#39; SQLite adapter handles this inside the migration, keeping the foreign keys and indexes. Take a backup first, run it on a copy of production data, and ship it separately from the feature code.</p>
+<h3>Removed or renamed columns</h3>
+<p>None. <code>ignored_columns</code> is not needed.</p>
+<h3>Resulting schema</h3>
+<pre><code>create_table &quot;categories&quot;, force: :cascade do |t|
+  t.string &quot;name&quot;, null: false
+  t.string &quot;slug&quot;, null: false
+  t.string &quot;color&quot;, null: false, default: &quot;#e11d48&quot;
+  t.datetime &quot;created_at&quot;, null: false
+  t.datetime &quot;updated_at&quot;, null: false
+  t.index [&quot;name&quot;], name: &quot;index_categories_on_name&quot;, unique: true
+  t.index [&quot;slug&quot;], name: &quot;index_categories_on_slug&quot;, unique: true
+end
+
+# events gains:
+t.integer &quot;category_id&quot;, null: false
+t.index [&quot;category_id&quot;, &quot;starts_at&quot;], name: &quot;index_events_on_category_id_and_starts_at&quot;
+
+add_foreign_key &quot;events&quot;, &quot;categories&quot;</code></pre>
+<h2>Application changes</h2>
+<p>Categories are records in the new <code>categories</code> table. Each event points to one through <code>events.category_id</code>. There is no enum on <code>Event</code>, and no list of categories in application code. The display name and badge colour come from the <code>Category</code> row, and the <code>slug</code> is the stable key used in URLs.</p>
+<h3>Model: <code>app/models/category.rb</code> (new)</h3>
+<pre><code>class Category &lt; ApplicationRecord
+  has_many :events, dependent: :restrict_with_error
+
+  validates :name, presence: true, uniqueness: true
+  validates :slug, presence: true, uniqueness: true, format: { with: /\A[a-z0-9-]+\z/ }
+  validates :color, format: { with: /\A#\h{6}\z/ }
+
+  scope :ordered, -&gt; { order(:name) }
+end</code></pre>
+<ul><li><code>dependent: :restrict_with_error</code> matches the foreign key, which has no <code>on_delete</code>. Destroying a category that events still use adds a validation error instead of raising a database error.</li><li>The <code>color</code> format check matters because the colour is written into a <code>style</code> attribute on the card (see Helper). Only <code>#rrggbb</code> values are accepted.</li><li><code>ordered</code> sorts alphabetically: Conference, Meetup, Talk, Workshop. There is no <code>position</code> column, and ordering by <code>id</code> depends on insert order in each environment. If the team wants the brief&#39;s order (meetup, workshop, talk, conference), that needs a <code>position</code> column, which Database changes does not include. See Outstanding questions.</li><li>No controller, route or admin screen manages categories in this change. They are changed only through migrations or the console.</li></ul>
+<h3>Model: <code>app/models/event.rb</code></h3>
+<ul><li>Add <code>belongs_to :category, optional: true</code> for the rollout. Rails requires <code>belongs_to</code> by default, which would make legacy rows with <code>category_id = NULL</code> invalid on any update before the backfill. The contract ticket (<code>EnforceCategoryOnEvents</code>) also removes <code>optional: true</code>, so the model then requires a category, like the database does.</li><li>Add <code>validates :category, presence: true, if: :category_id?</code>. With <code>optional: true</code>, a <code>category_id</code> that points to no row would otherwise reach the foreign key and raise <code>ActiveRecord::InvalidForeignKey</code>, which becomes a 500. This validation turns it into a normal form error (&quot;Category can&#39;t be blank&quot;) and a 422.</li><li>New records get their category from one of two options, depending on Outstanding question 3:</li><li><strong>Preselect Meetup:</strong> add <code>before_validation :assign_default_category, on: :create</code>. It sets <code>self.category ||= Category.find_by(slug: &quot;meetup&quot;)</code>.</li><li><strong>Organizer must choose:</strong> add <code>validates :category, presence: true, on: :create</code> instead.</li></ul>
+<p>  Either way, every event created from this release onward has a <code>category_id</code>. That is the dual-write step.</p>
+<ul><li>Add <code>scope :in_category, -&gt;(category) { where(category:) }</code> so the controller filter reads clearly and model specs can test it with <code>upcoming</code>.</li><li>Remove the enum wording from the earlier plan. There are no <code>Event.meetup</code> scopes, no <code>meetup?</code> predicates and no <code>Event.categories</code>.</li></ul>
+<h3>Controller: <code>app/controllers/events_controller.rb</code></h3>
+<ul><li><code>index</code>:</li></ul>
+<pre><code>def index
+  @categories = Category.ordered
+  @category = @categories.find { |category| category.slug == params[:category] }
+  @events = Event.upcoming.includes(:organizer, :category)
+  @events = @events.in_category(@category) if @category
+  @going_counts = Rsvp.going.where(event: @events).group(:event_id).count
+end</code></pre>
+<ul><li>The filter bar needs the full category list anyway, so the <code>slug</code> from <code>params[:category]</code> is matched against that loaded list. This avoids a separate <code>Category.find_by(slug:)</code> query. A missing or unknown slug leaves <code>@category</code> as <code>nil</code> and shows All. The raw parameter is never passed to a query and never rendered.</li><li><code>includes(:category)</code> loads the badge name and colour for every card in one query.</li><li><code>@going_counts</code> stays a single grouped query over the filtered <code>@events</code> relation.</li><li><code>new</code>: if the answer to Outstanding question 3 is &quot;preselect Meetup&quot;, build with <code>category: Category.find_by(slug: &quot;meetup&quot;)</code> so the select shows Meetup. Otherwise, no change.</li><li><code>new</code>, <code>create</code>, <code>edit</code> and <code>update</code> re-render the form, which needs the category list. The form reads <code>Category.ordered</code> directly (see Views). No extra instance variable or <code>before_action</code> is needed.</li><li><code>event_params</code>: <code>params.expect(event: %i[ title description starts_at venue capacity category_id ])</code>.</li><li><code>create</code>, <code>update</code>, <code>show</code>: no logic changes. <code>create</code> keeps <code>Current.user.organized_events.build(event_params)</code>. <code>require_organizer</code> still guards <code>edit</code> and <code>update</code>, so only the organizer can change <code>category_id</code>.</li></ul>
+<h3>Helper: <code>app/helpers/application_helper.rb</code></h3>
+<ul><li>Add <code>event_category_badge(event)</code>:</li></ul>
+<pre><code>def event_category_badge(event)
+  return if event.category.nil?
+
+  tag.span event.category.name, class: &quot;category-badge&quot;, style: &quot;--category-color: #{event.category.color}&quot;
+end</code></pre>
+<ul><li>It returns <code>nil</code> while legacy rows still have <code>category_id = NULL</code>, so the card renders without a badge instead of raising an error. After the contract step, this guard can be removed.</li><li>The colour goes into a CSS custom property. The stylesheet decides how to use it, such as for the background, border or dot. <code>tag.span</code> escapes attribute values, and <code>Category</code> validates the <code>#rrggbb</code> format.</li><li>Drop <code>event_category_name</code> and the i18n labels from the earlier plan. The label is <code>Category#name</code>.</li></ul>
+<h3>Views</h3>
+<ul><li><code>app/views/events/_form.html.erb</code>:</li><li>Add a Category field after Title, using <code>form.collection_select :category_id, Category.ordered, :id, :name, { prompt: &quot;Choose a category&quot; }, required: true</code>. <code>form_with model: event</code> preselects the saved value on edit.</li><li>A legacy event with no category shows the prompt on edit. If the organizer saves without choosing, <code>category_id</code> stays <code>NULL</code> until the backfill, which <code>optional: true</code> allows.</li><li>Whether this is a select or a radio group is still Outstanding question 4. The existing error block already shows the new validation messages.</li><li><code>app/views/events/index.html.erb</code>:</li><li>In each <code>.event-card__body</code>, render <code>event_category_badge(event)</code> in its own element above or next to <code>.event-card__title</code>. The &quot;Organized by … · N of N seats left&quot; line does not change.</li><li>Add <code>&lt;nav class=&quot;category-filter&quot; aria-label=&quot;Filter by category&quot;&gt;</code> between <code>.hero</code> and <code>.event-list</code>. It has an &quot;All&quot; link to <code>events_path</code> and one link per category in <code>@categories</code> to <code>events_path(category: category.slug)</code>. The active link gets <code>aria-current=&quot;page&quot;</code>, which is &quot;All&quot; when <code>@category</code> is <code>nil</code>.</li><li>Filtered empty state: &quot;No upcoming #{@category.name.downcase.pluralize} yet.&quot; plus a link to All. Keep the current &quot;No upcoming events yet.&quot; when no filter is set.</li><li>The hero copy change is still Outstanding question 7.</li><li><code>app/views/events/show.html.erb</code>: no change unless Outstanding question 6 adds the badge to <code>#event-facts</code>. If it does, reuse <code>event_category_badge</code>.</li></ul>
+<h3>Styles: <code>app/assets/stylesheets/application.css</code></h3>
+<ul><li><code>.category-badge</code> uses <code>var(--category-color)</code>, for example as the background with white text, or as a coloured border and dot on a neutral background.</li><li>Add <code>.category-filter</code> and its <code>[aria-current=&quot;page&quot;]</code> active state.</li><li>There are no per-category modifier classes, because colours come from the database.</li><li>Every seeded category gets the column default <code>#e11d48</code> unless someone sets distinct colours, and the text must stay readable on any valid colour. See Outstanding questions.</li></ul>
+<h3>Backfill task: <code>lib/tasks/events.rake</code> (new file)</h3>
+<p><code>events:backfill_category</code>, as described under Database changes:</p>
+<ul><li><code>meetup = Category.find_by!(slug: &quot;meetup&quot;)</code></li><li><code>Event.where(category_id: nil).in_batches(of: 1_000).update_all(category_id: meetup.id)</code></li><li>Log the number of rows updated.</li></ul>
+<h3>Seeds: <code>db/seeds.rb</code></h3>
+<ul><li>Before the demo events, create the four categories with <code>Category.find_or_create_by!(slug:) { |c| c.name = ... }</code>. Seeds may also set a <code>color</code> for each so the demo shows different badges.</li><li>Add a <code>category:</code> to each demo event hash. &quot;Ruby Zagreb Meetup #42&quot; is <code>meetup</code>, and &quot;Hotwire workshop: Turbo Streams in practice&quot; is <code>workshop</code>. &quot;Rails upgrade clinic&quot; should also be assigned one, for example <code>workshop</code>.</li></ul>
+<h3>Test support</h3>
+<ul><li><code>spec/factories/categories.rb</code> (new):</li><li><code>sequence(:slug)</code>, <code>name { slug.titleize }</code>, <code>color { &quot;#e11d48&quot; }</code>.</li><li><code>initialize_with { Category.find_or_initialize_by(slug:) }</code>, so many events can share the <code>meetup</code> category without breaking the unique index on <code>slug</code>.</li><li><code>spec/factories/events.rb</code>:</li><li>Add <code>category { association :category, slug: &quot;meetup&quot; }</code>.</li><li>Add traits <code>:workshop</code>, <code>:talk</code> and <code>:conference</code>, each with the matching slug.</li><li>Add a <code>:legacy</code> trait with <code>category { nil }</code> for rows from before the backfill.</li><li><code>features/step_definitions/events_index_steps.rb</code>: add steps to create an event in a named category and to click a filter link. The existing step <code>{int} query/queries ran against {word}</code> stays, and the filtered index keeps exactly one query against <code>rsvps</code>.</li></ul>
+<h3>Policies and jobs</h3>
+<p>The app has no policy layer (there is no <code>app/policies</code>). Authorization stays in <code>EventsController#require_organizer</code>, and <code>allow_unauthenticated_access only: %i[ index show ]</code> keeps the filtered index public. No jobs are added.</p>
+<h2>Infrastructure changes</h2>
+<p>There are no new queues, background jobs, external services or environment variables.</p>
+<p>There is no feature flag. The Gemfile has no flag library, the change is small, and the category field and filter can ship directly. If the team wants to hide the filter until categories have been assigned to real events, that needs a decision (see Outstanding questions).</p>
+<p>Rollout order:</p>
+<ol><li>Deploy migration <code>AddCategoryToEvents</code> (column with default <code>&#39;meetup&#39;</code>, plus the index). Old code keeps running.</li><li>Run <code>bin/rails events:backfill_category</code> in production and confirm <code>Event.where(category: nil).count == 0</code>.</li><li>Deploy the application code: enum, strong params, form field, card label and filter. This can go in the same release as step 1, as long as the deploy runs migrations before new processes serve traffic.</li><li>Once organizers have had time to recategorize their events, deploy migration <code>EnforceCategoryOnEvents</code> (NOT NULL plus check constraint). Take a database backup first, because on SQLite this rebuilds the <code>events</code> table.</li></ol>
+<h1>Work overview</h1>
+<h2>Out of Scope</h2>
+<p>Custom categories, several categories per event, and search.</p>
+<h1>Risks</h1>
+<ul><li><strong>Every existing event shows up as a meetup, including conferences and workshops.</strong> The team asked for this, but the new filter will look wrong until organizers fix their events. <em>Mitigation:</em> tell organizers before release. Optionally give the team a one-off list of upcoming events so they can ask organizers to recategorize. Whether an admin should correct them in bulk is an Outstanding question.</li><li><strong>Old code running during the deploy creates events without a category.</strong> <em>Mitigation:</em> the column default <code>&#39;meetup&#39;</code> fills the value, and the column stays nullable until step 4.</li><li><strong>The SQLite table rebuild in the contract migration.</strong> <code>events</code> is referenced by <code>rsvps.event_id</code>, and both <code>change_column_null</code> and <code>add_check_constraint</code> rebuild the table on SQLite. <em>Mitigation:</em> run the migration on a copy of production data first, take a backup before deploying, and ship it separately from the feature code.</li><li><strong>An invalid category from a tampered form or a bad query string.</strong> <em>Mitigation:</em> <code>enum ... validate: true</code> turns bad form values into a 422 with an error message. The index ignores filter values not in <code>Event.categories.keys</code>, so it never raises and never runs a query with arbitrary input.</li><li><strong>The filter adds extra queries per card, or breaks the one-query seat counts.</strong> <em>Mitigation:</em> the filter is a <code>where</code> on the same relation. <code>@going_counts</code> stays a single grouped query, and the existing request spec that asserts one <code>rsvps</code> query is extended to cover filtered pages.</li><li><strong>Enum-generated methods clash with future code</strong> (for example a future <code>talk</code> association). <em>Mitigation:</em> none of the generated methods clash today. If the team wants extra safety, use <code>prefix: :category</code> (<code>category_meetup?</code>) and decide before tickets start (see Outstanding questions).</li><li><strong>Cucumber and request specs that assert exact card text fail when the card gains a label.</strong> <em>Mitigation:</em> the category label goes in its own element, and assertions like &quot;Organized by Ana Kovač · 3 of 3 seats left&quot; in <code>features/events.feature</code> keep matching because that line doesn&#39;t change.</li></ul>
+<h2>Performance</h2>
+<ul><li><strong>Index query count.</strong> It stays the same as today: one query for events (with or without the category condition), one for organizers from <code>includes(:organizer)</code>, and one grouped <code>rsvps</code> count. The card label reads a column already loaded on each event, so there is no N+1.</li><li><strong>Indexes.</strong> The new composite index <code>[category, starts_at]</code> serves <code>WHERE category = ? AND starts_at &gt;= ? ORDER BY starts_at</code> without a separate sort. The unfiltered page keeps using <code>index_events_on_starts_at</code>. Category has only four values, so an index on <code>category</code> alone would help little and is not added.</li><li><strong>Table size.</strong> The number of rows in <code>events</code> is unknown but expected to be small for a community site. Adding a column with a constant default on SQLite does not rewrite existing rows. The contract migration does rebuild the table, and its duration grows with row count (see Risks).</li><li><strong>Backfill.</strong> <code>in_batches(of: 1_000).update_all(...)</code> over rows where <code>category IS NULL</code>. Each batch is one UPDATE, validations and callbacks are skipped, and the task can be re-run safely. At the expected table size it should finish in seconds.</li><li><strong>Filter links.</strong> They are built from the constant list of categories. No count per category is shown, so rendering the filter bar costs no queries. If counts per category are added later, use a single <code>group(:category).count</code>.</li></ul>
+<h2>Security</h2>
+<ul><li><strong>Authorization.</strong> Unchanged. Anyone, including guests, can view and filter <code>/events</code> (<code>allow_unauthenticated_access only: %i[ index show ]</code>). Creating an event requires sign-in. Only the organizer can edit or update an event, through <code>require_organizer</code>, which now also covers changing the category. A request spec should confirm that a non-organizer cannot change the category with a PATCH.</li><li><strong>Input validation.</strong></li><li><code>category</code> is added to the <code>params.expect</code> allow-list.</li><li>The model enum with <code>validate: true</code> rejects any value outside the four allowed ones.</li><li>The step 4 check constraint <code>events_category_check</code> enforces the same list in the database.</li><li>The <code>category</code> query parameter on the index is checked against <code>Event.categories.keys</code> before use. Unknown values are ignored, not echoed back into the page.</li><li><strong>Data exposure.</strong> Category is public and non-sensitive, like the title and venue. The index cards expose no new user data.</li><li><strong>Output.</strong> Labels come from a fixed list and are rendered through normal ERB escaping, so there is no raw HTML.</li></ul>
+<p>Risk Level: LOW. The change adds a public, allow-listed attribute behind the existing organizer check and exposes no personal data.</p>
+<h2>Monitoring</h2>
+<ul><li><strong>Errors.</strong> Watch for <code>ArgumentError</code> or <code>ActiveRecord::StatementInvalid</code> from <code>EventsController#index</code>, <code>#create</code> and <code>#update</code> in the first days. Any <code>events_category_check</code> violation after step 4 means some code path is writing an invalid value.</li><li><strong>Request outcomes.</strong> Compare the 422 rate on <code>POST /events</code> and <code>PATCH /events/:id</code> with the rate before release. A jump suggests the category field is confusing or missing from a form.</li><li><strong>Backfill.</strong> Record the row count logged by <code>events:backfill_category</code>. Before shipping step 4, confirm <code>Event.where(category: nil).count == 0</code> in a production console.</li><li><strong>Adoption.</strong> Periodically run <code>Event.group(:category).count</code> and the same over <code>Event.upcoming</code>. If almost every new event is still <code>meetup</code> weeks after release, the preselected default may be hiding the choice.</li><li><strong>Response time.</strong> Watch the response time of <code>GET /events</code> with and without <code>category</code>. It should not change noticeably.</li><li><strong>Jobs.</strong> None are added, so there is nothing to watch.</li></ul>
+<h2>Outstanding questions</h2>
+<ol><li><strong>Scope of the backfill (before step 2).</strong> Should all existing events become meetups, including past ones, or only upcoming ones? This plan assumes all of them.</li><li><strong>Known non-meetups (before step 2).</strong> Will someone correct existing events that are clearly conferences, workshops or talks, or is that left to each organizer?</li><li><strong>Default in the form (before step 3).</strong> Should the new-event form preselect Meetup, or require organizers to choose, with a blank prompt and no model default? This decides whether the column default stays after step 4.</li><li><strong>Form control (before step 3).</strong> Select menu or radio buttons for the category?</li><li><strong>Wording (before step 3).</strong> Are the display labels &quot;Meetup&quot;, &quot;Workshop&quot;, &quot;Talk&quot;, &quot;Conference&quot;, in English only? Should they live in <code>config/locales/en.yml</code>?</li><li><strong>Show page (before step 3).</strong> Should the category also appear on the event show page (<code>app/views/events/show.html.erb</code>)? The brief only mentions the index and the forms.</li><li><strong>Hero copy (before step 3).</strong> Should the index hero text &quot;Meetups, workshops and talks from the Zagreb tech community.&quot; change to mention conferences?</li><li><strong>Filter bar details (before step 3).</strong> Should the bar show counts per category? Should it keep the chosen filter when the user navigates back from an event?</li><li><strong>Enum method names (before step 3).</strong> Plain enum methods (<code>Event.talk</code>, <code>event.meetup?</code>) or prefixed ones (<code>category_talk?</code>)?</li><li><strong>Deploy pipeline (before step 1).</strong> Does the production deploy run <code>db:migrate</code> or <code>db:prepare</code> before new app processes serve traffic? This decides whether steps 1 and 3 can share a release.</li><li><strong>Timing of the contract step (before step 4).</strong> How long should organizers have to recategorize before the NOT NULL and check-constraint migration ships? Is a maintenance window needed for the SQLite table rebuild?</li></ol>
+<h1>Testing</h1>
+<h3>Model: <code>spec/models/event_spec.rb</code></h3>
+<ul><li>Accepts each of <code>meetup</code>, <code>workshop</code>, <code>talk</code> and <code>conference</code>.</li><li>Is invalid with an unknown category (for example <code>&quot;party&quot;</code>) and shows an error on <code>:category</code>. It does not raise.</li><li>Is invalid with <code>category: nil</code>.</li><li>A new <code>Event</code> defaults to <code>meetup</code> when no category is given.</li><li><code>Event.workshop</code> and similar scopes return only events of that category. Combined with <code>upcoming</code>, the result stays ordered by <code>starts_at</code>.</li></ul>
+<h3>Backfill task</h3>
+<ul><li>Sets <code>meetup</code> on rows where <code>category</code> is <code>NULL</code> (created with <code>update_column(:category, nil)</code> before the contract migration).</li><li>Leaves rows that already have a category unchanged.</li><li>Running it twice changes nothing and does not touch <code>updated_at</code>.</li></ul>
+<h3>Migrations</h3>
+<ul><li><code>db/schema.rb</code> shows <code>category</code> with default <code>&#39;meetup&#39;</code> and the <code>[category, starts_at]</code> index. After step 4, it also shows <code>null: false</code> and <code>events_category_check</code>.</li><li>After step 4, inserting an invalid category through SQL fails.</li></ul>
+<h3>Request specs: <code>spec/requests/events_spec.rb</code></h3>
+<ul><li>The index shows the category label on every card, and a legacy event shows &quot;Meetup&quot;.</li><li><code>GET /events?category=workshop</code> lists only upcoming workshops and marks the Workshop filter link as active.</li><li><code>GET /events?category=bogus</code> and <code>GET /events</code> list every upcoming category without error.</li><li>A filtered index with no matches shows the category-specific empty state and a link to All.</li><li>Guests can view and filter the index.</li><li>The filtered index still loads going counts in a single <code>rsvps</code> query (extend the existing query-count spec).</li><li>A signed-in user can create an event with <code>category: &quot;talk&quot;</code>, and it is saved.</li><li>Creating with an invalid category returns 422 and re-renders the form with an error.</li><li>The organizer can change the category through PATCH.</li><li>A non-organizer&#39;s PATCH to <code>category</code> leaves it unchanged.</li><li>Guests are still redirected away from <code>new</code>.</li></ul>
+<h3>Helper: <code>spec/helpers/application_helper_spec.rb</code> (new)</h3>
+<ul><li><code>event_category_label</code> renders the human label and CSS modifier for each category.</li><li>It returns nothing for a blank category.</li></ul>
+<h3>System and Cucumber: <code>features/events.feature</code> or a new <code>features/event_categories.feature</code></h3>
+<ul><li>A guest sees category labels on the cards and narrows the list by clicking &quot;Workshop&quot;, then returns with &quot;All&quot;.</li><li>An organizer creates an event, picks &quot;Conference&quot;, and sees it labelled Conference on the index.</li><li>An organizer edits an existing event, previously a legacy meetup, changes it to &quot;Talk&quot;, and it appears under the Talk filter.</li><li>Someone who is not the organizer still sees no &quot;Edit event&quot; link, so has no way to change the category.</li><li>The existing scenario &quot;Organized by Ana Kovač · 3 of 3 seats left&quot; still passes.</li></ul>
+<h1>Sign-off</h1>
+<table><thead><tr><th>Role</th><th>Decision</th><th>By</th><th>When</th></tr></thead><tbody><tr><td>Review</td><td>pending</td><td></td><td></td></tr></tbody></table>
+</main>
+</body>
+</html>
