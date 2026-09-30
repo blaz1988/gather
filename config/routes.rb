@@ -3,6 +3,7 @@ Rails.application.routes.draw do
   resources :passwords, param: :token
   resources :events, except: :destroy do
     resource :rsvp, only: %i[ create destroy ]
+    resources :comments, only: %i[ create ]
   end
 
   get "up" => "rails/health#show", as: :rails_health_check

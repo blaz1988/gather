@@ -7,4 +7,15 @@
   <% else %>
     <p class="muted small">No comments yet. Ask a question.</p>
   <% end %>
+  <% if authenticated? %>
+    <%= form_with model: [ @event, Comment.new ], id: "new-comment", class: "form comments__new" do |form| %>
+      <div class="field">
+        <%= form.label :body, "Your comment" %>
+        <%= form.text_area :body, rows: 3, required: true, maxlength: Comment::MAX_LENGTH %>
+      </div>
+      <%= form.submit "Post comment", class: "button", data: { turbo_submits_with: "Posting…" } %>
+    <% end %>
+  <% else %>
+    <%= link_to "Sign in to comment", new_session_path, class: "button comments__new" %>
+  <% end %>
 </section>

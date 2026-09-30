@@ -124,6 +124,7 @@ main.container { padding-top: 32px; padding-bottom: 64px; }
 .comment:first-child { border-top: 0; }
 .comment__meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 4px; }
 .comment__body p { margin: 0 0 6px; overflow-wrap: anywhere; }
+.comments__new { margin-top: 16px; }
 
 /* Forms */
 .auth { max-width: 420px; margin: 40px auto; }
