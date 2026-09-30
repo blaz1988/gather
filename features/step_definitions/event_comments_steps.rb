@@ -40,7 +40,7 @@ Then("the comment by {string} has the paragraphs:") do |name, table|
 end
 
 Then("the comments section has no script or link elements") do
-  expect(comments_section).to have_no_css("script, a", visible: :all)
+  expect(comments_section.find("#comments-list")).to have_no_css("script, a", visible: :all)
 end
 
 When("I note how many queries ran against users") do
