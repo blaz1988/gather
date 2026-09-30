@@ -1,7 +1,7 @@
 PATH
   remote: vendor/plan_driven
   specs:
-    plan_driven (0.1.0)
+    plan_driven (0.2.0)
       activerecord (>= 7.0, < 9)
       railties (>= 7.0, < 9)
 

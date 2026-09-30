@@ -24,10 +24,50 @@ Zagreb. [Need Rails engineers?](#about-rubycode)
 
 ## Watch it deliver a feature
 
-[![Watch the plan_driven demo (28 min)](docs/images/demo.png)](https://github.com/blaz1988/plan-driven/releases/download/v0.1.0/plan-driven-demo.mp4)
+[![Watch the plan_driven wizard demo (12 min)](docs/images/wizard-demo.png)](https://github.com/blaz1988/plan-driven/releases/download/v0.1.0/plan-driven-wizard.mp4)
 
-**[▶ Watch the demo](https://github.com/blaz1988/plan-driven/releases/download/v0.1.0/plan-driven-demo.mp4)**
-(28 minutes, narrated, with captions). One feature, RSVPs with a waitlist, goes from an
+**[▶ Watch the wizard demo](https://github.com/blaz1988/plan-driven/releases/download/v0.1.0/plan-driven-wizard.mp4)**
+(12 minutes, narrated, with captions). One feature, comments on events, is delivered from
+the [browser wizard](#the-browser-wizard) in [Gather](https://github.com/blaz1988/gather):
+the plan drafted and one section redrafted, six tickets as issues
+([#34](https://github.com/blaz1988/gather/issues/34) to
+[#39](https://github.com/blaz1988/gather/issues/39)), six agents and six pull requests
+([#40](https://github.com/blaz1988/gather/pull/40) to
+[#45](https://github.com/blaz1988/gather/pull/45)), one round of feedback, and 42 of 42
+acceptance criteria proven by a passing scenario. After every click the video zooms into the
+wizard's terminal panel, which shows the `plan-driven` command that ran and its output. The
+wizard ships with 0.2.0.
+
+<details>
+<summary>Chapters</summary>
+
+| Time | Chapter |
+| ---: | --- |
+| 0:00 | What plan_driven is |
+| 0:24 | Installing it, and how the wizard works |
+| 1:13 | `doctor`, from the wizard |
+| 1:48 | The interview as a form, and the draft |
+| 2:43 | Reading the plan, redrafting a section, submitting and approving |
+| 3:51 | Tickets drafted and approved, as GitHub issues |
+| 4:37 | Starting the agents |
+| 5:18 | Refreshing, and `review` |
+| 6:01 | Reading the first pull request |
+| 6:46 | Approving and merging, and the next agent starts |
+| 7:43 | Feedback to the agent on T3 |
+| 8:24 | Every ticket merged |
+| 8:53 | Evidence (42 of 42), tokens, and the delivery report |
+| 9:47 | Reading the delivery report |
+| 10:11 | The feature in the app |
+| 10:46 | The same commands in a terminal |
+| 11:22 | Recap |
+
+</details>
+
+### The CLI deep dive
+
+**[▶ Watch the CLI demo](https://github.com/blaz1988/plan-driven/releases/download/v0.1.0/plan-driven-demo.mp4)**
+(28 minutes, narrated, with captions), for everything the wizard runs, typed in a terminal.
+One feature, RSVPs with a waitlist, goes from an
 idea to production code in a new Rails 8 app,
 [Gather](https://github.com/blaz1988/gather). Nothing in it is staged: the plan, the five
 tickets, the five pull requests ([#8](https://github.com/blaz1988/gather/pull/8) to
@@ -213,7 +253,7 @@ into your application. See [Keys](#keys).
 ```
 $ bin/plan-driven doctor
 
-plan-driven 0.1.0
+plan-driven 0.2.0
 ✓ Rails application: plan_driven tables present
 LLM: cursor/claude-opus-5-5
 ✓ Cursor SDK: Node v24.21.0, @cursor/sdk found
@@ -303,13 +343,49 @@ So anything done in the browser can be repeated, scripted or reviewed from the t
 the audit trail is the same either way. A few things to know:
 
 - Only a fixed list of commands can run, built from the form fields as an argument list, never
-  through a shell. `configure` isn't on it: keys are still set in the terminal, and the wizard
-  never shows them.
+  through a shell. A key pasted on the Configuration page goes to `plan-driven connect` on
+  stdin, so it's never in the command line, the panel or the logs.
 - It answers local requests only, and only in development. `config.wizard_enabled = true`
   turns it on in another environment, still for local requests only.
 - "Acting as" at the top sets `PLAN_DRIVEN_ACTOR` for the commands it runs, so approvals are
   recorded under the name you give; it defaults to your git identity.
 - Each run is kept in `tmp/plan_driven/wizard/`: the command, its output and its exit status.
+
+### Configuration: connections and the interview
+
+**Configuration**, at the top of every page, has two parts.
+
+**Connections** shows which services this app's configuration uses (Cursor for cloud agents
+or drafting, OpenAI or Anthropic for drafting, GitHub for issues and pull requests), whether
+each one has a key, and where the key comes from. Paste a key and click Connect:
+`plan-driven connect cursor` checks it with the service first (for Cursor, the account it
+belongs to) and only then stores it in `~/.plan_driven/config`. A refused key is never stored.
+**Check every connection** runs `doctor`. The same works in the terminal:
+
+```
+$ bin/plan-driven connect cursor
+Cursor key:
+Checking the key with Cursor...
+✓ Cursor: connected as ana@example.com
+  stored in ~/.plan_driven/config (0600), never in the app
+```
+
+Which model drafts and which agents write the code are still set in the initializer (see
+[Choosing the coding agents](#choosing-the-coding-agents)); the page shows the current choice.
+
+**Interview questions** lists what `plan-driven new` and the New plan form ask. Change a
+question's title or wording, make it required or optional, add your own questions, or put one
+back to the default. Each Save runs `plan-driven question`:
+
+```
+$ bin/plan-driven question success_metric --title "Success metric" --ask "How will we know it worked?" --optional
+✓ Question success_metric added
+```
+
+The changes are written to `config/plan_driven/interview.yml` in your app. Commit it, and the
+whole team gets the same interview, in the wizard and in the terminal. An added question goes
+to the model with the other answers, and it's a section of the plan under the group you pick.
+Drafted sections (Database changes, Risks...) belong to the model and can't be changed here.
 
 ## Walkthrough: one feature from idea to merged
 
@@ -764,14 +840,17 @@ key such as `PD-1`, and `PLAN/TICKET` is a ticket such as `PD-1/T3`.
 | `report PLAN` | Write the delivery report |
 | `log PLAN` | The audit trail |
 | `usage PLAN` | Tokens, time and cost per step and per agent run |
+| `questions` | The interview's questions, and which ones the team changed or added |
+| `question KEY [--title T] [--ask Q] [--group G] [--required \| --optional] [--remove]` | Change or add an interview question, or put it back |
 | `configure` | Store keys in `~/.plan_driven/config` |
+| `connect SERVICE` | Check a key with `cursor`, `openai`, `anthropic` or `github`, then store it |
 | `doctor` | Check keys, repository, PDF browser, and the Cursor connection or local agent command |
 
 Section keys for `show --section`, `edit` and `redraft`: `what`, `why`, `where`, `who`,
 `when`, `background`, `existing_data_structure`, `architecture`, `database_changes`,
 `application_changes`, `infrastructure_changes`, `out_of_scope`, `risks`, `performance`,
-`security`, `monitoring`, `outstanding_questions` and `testing`. `edit PLAN` without a section
-lists them.
+`security`, `monitoring`, `outstanding_questions` and `testing`, plus any question the team
+added. `edit PLAN` without a section lists them.
 
 `--yes` skips confirmations, for scripts. `merge` still needs the ticket key typed unless
 `--yes` is given.
