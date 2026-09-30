@@ -10,6 +10,10 @@ module ApplicationHelper
     event.starts_at.strftime("%A, %-d %B %Y · %H:%M")
   end
 
+  def comment_time(comment)
+    comment.created_at.strftime("%-d %B %Y · %H:%M")
+  end
+
   def seats_left_label(event, taken)
     seats_left = event.seats_left(taken)
     seats_left.zero? ? "Full" : "#{seats_left} of #{pluralize(event.capacity, "seat")} left"

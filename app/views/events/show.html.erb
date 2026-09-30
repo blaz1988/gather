@@ -33,6 +33,7 @@
         </dd>
       </dl>
       <%= render "events/rsvp_card" %>
+      <%= render "events/comments" %>
       <% if @event.organized_by?(Current.user) %>
         <%= link_to "Edit event", edit_event_path(@event), class: "button button--ghost" %>
       <% end %>

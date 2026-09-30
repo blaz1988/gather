@@ -171,6 +171,93 @@ RSpec.describe "Events", type: :request do
     end
   end
 
+  describe "comments" do
+    let(:marko) { create(:user, name: "Marko Horvat") }
+
+    def comments_section
+      get event_path(event)
+      Nokogiri::HTML(response.body).at_css("section#comments")
+    end
+
+    it "shows guests every comment with its author, posted time and body, right after the RSVP card" do
+      create(:comment, event: event, user: marko, body: "Is there parking nearby?")
+      create(:comment, event: event, user: organizer, body: "Yes, behind the building.")
+
+      section = comments_section
+      expect(section.at_css("h2").text).to eq("Comments (2)")
+      expect(section.text).to include("Marko Horvat", "Is there parking nearby?", "Ana Kovač", "Yes, behind the building.")
+      expect(section.css("time").size).to eq(2)
+      expect(Nokogiri::HTML(response.body).at_css("#rsvp-card + section#comments")).to be_present
+    end
+
+    it "lists comments oldest first" do
+      create(:comment, event: event, body: "Second", created_at: 1.hour.ago)
+      create(:comment, event: event, body: "First", created_at: 2.hours.ago)
+      create(:comment, event: event, body: "Third", created_at: 1.hour.ago)
+
+      expect(comments_section.css(".comment p:not(.comment__meta)").map(&:text)).to eq(%w[ First Second Third ])
+    end
+
+    it "shows an empty state when there are no comments" do
+      section = comments_section
+      expect(section.at_css("h2").text).to eq("Comments (0)")
+      expect(section.text).to include("No comments yet. Ask a question.")
+      expect(section.at_css("ol")).to be_nil
+    end
+
+    it "shows the posted time in a time element with an ISO 8601 datetime" do
+      posted_at = Time.zone.local(2026, 9, 30, 15, 19, 42)
+      create(:comment, event: event, created_at: posted_at)
+
+      time = comments_section.at_css("time")
+      expect(time.text).to eq("30 September 2026 · 15:19")
+      expect(time["datetime"]).to eq(posted_at.iso8601)
+    end
+
+    it "shows Someone for an author whose name is blank" do
+      create(:comment, event: event, user: marko)
+      marko.update_column(:name, "")
+
+      expect(comments_section.at_css(".comment__meta strong").text).to eq("Someone")
+    end
+
+    it "shows HTML in the body as escaped text" do
+      create(:comment, event: event, body: %(<script>alert(1)</script> <a href="javascript:alert(1)">x</a>))
+
+      comment = comments_section.at_css(".comment")
+      expect(comment.css("script, a")).to be_empty
+      expect(comment.text).to include(%(<script>alert(1)</script> <a href="javascript:alert(1)">x</a>))
+      expect(response.body).to include("&lt;script&gt;alert(1)&lt;/script&gt;")
+    end
+
+    it "keeps line breaks in the body" do
+      create(:comment, event: event, body: "First line\nSecond line\n\nNew paragraph")
+
+      body = comments_section.at_css(".comment__body")
+      expect(body.css("p").map { it.text.squish }).to eq([ "First line Second line", "New paragraph" ])
+      expect(body.css("br").size).to eq(1)
+    end
+
+    it "loads comments in one query and authors in a fixed number of queries" do
+      count_queries = lambda do
+        queries = []
+        record = ->(*, payload) { queries << payload[:sql] unless payload[:name] == "SCHEMA" }
+        ActiveSupport::Notifications.subscribed(record, "sql.active_record") { get event_path(event) }
+        [ queries.grep(/\bFROM "comments"/).size, queries.grep(/\bFROM "users"/).size ]
+      end
+
+      create(:comment, event: event)
+      comments_with_one, users_with_one = count_queries.call
+
+      create_list(:comment, 9, event: event)
+      comments_with_ten, users_with_ten = count_queries.call
+
+      expect(response.body).to include("Comments (10)")
+      expect([ comments_with_one, comments_with_ten ]).to eq([ 1, 1 ])
+      expect(users_with_ten).to eq(users_with_one)
+    end
+  end
+
   it "asks guests to sign in before creating an event" do
     get new_event_path
     expect(response).to redirect_to(new_session_path)

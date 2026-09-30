@@ -1,0 +1,7 @@
+<li id="<%= dom_id(comment) %>" class="comment">
+  <p class="comment__meta small">
+    <strong><%= comment.user.name.presence || "Someone" %></strong>
+    <time class="muted" datetime="<%= comment.created_at.iso8601 %>"><%= comment_time(comment) %></time>
+  </p>
+  <div class="comment__body"><%= simple_format(h(comment.body)) %></div>
+</li>
