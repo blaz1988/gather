@@ -26,10 +26,13 @@ require_relative "plan_driven/agent_prompt"
 require_relative "plan_driven/http"
 require_relative "plan_driven/github"
 require_relative "plan_driven/cursor_agents"
+require_relative "plan_driven/local_agents"
+require_relative "plan_driven/usage"
 require_relative "plan_driven/repository"
 require_relative "plan_driven/renderer"
 require_relative "plan_driven/evidence"
 require_relative "plan_driven/delivery"
+require_relative "plan_driven/wizard"
 require_relative "plan_driven/railtie" if defined?(Rails::Railtie)
 
 module PlanDriven
