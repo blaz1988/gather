@@ -22,6 +22,15 @@ RSpec.describe Event do
     expect(event.organized_by?(nil)).to be(false)
   end
 
+  it "deletes its comments when destroyed" do
+    event = create(:event)
+    create_list(:comment, 2, event:)
+    other = create(:comment)
+
+    expect { event.destroy! }.to change(Comment, :count).by(-2)
+    expect(Comment.all).to eq([ other ])
+  end
+
   describe "seats" do
     it "has every seat left and an empty waitlist before anyone RSVPs" do
       event = create(:event, capacity: 3)

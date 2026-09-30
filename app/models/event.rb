@@ -1,6 +1,7 @@
 class Event < ApplicationRecord
   belongs_to :organizer, class_name: "User"
   has_many :rsvps, dependent: :delete_all
+  has_many :comments, dependent: :delete_all, inverse_of: :event
   has_many :attendees, -> { merge(Rsvp.going) }, through: :rsvps, source: :user
 
   validates :title, :starts_at, :venue, presence: true

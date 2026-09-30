@@ -28,5 +28,23 @@ RSpec.describe User do
       expect { event.organizer.destroy! }.to change(Rsvp, :count).by(-3)
       expect(Event.exists?(event.id)).to be(false)
     end
+
+    it "deletes the comments they wrote on other people's events" do
+      author = create(:user)
+      create(:comment, event:, user: author)
+      create(:comment, user: author)
+      kept = create(:comment, event:)
+
+      expect { author.destroy! }.to change(Comment, :count).by(-2)
+      expect(Comment.all).to eq([ kept ])
+    end
+
+    it "deletes an organizer's events along with other people's comments on them" do
+      create_list(:comment, 2, event:)
+
+      expect { event.organizer.destroy! }.not_to raise_error
+      expect(Event.exists?(event.id)).to be(false)
+      expect(Comment.where(event_id: event.id)).to be_empty
+    end
   end
 end
