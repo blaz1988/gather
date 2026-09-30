@@ -33,4 +33,20 @@ RSpec.describe Comment do
 
     expect(event.comments.oldest_first).to eq([ earlier, later, same_time ])
   end
+
+  describe "#deletable_by?" do
+    let(:comment) { create(:comment) }
+
+    it "is true for the author" do
+      expect(comment.deletable_by?(comment.user)).to be(true)
+    end
+
+    it "is false for another user" do
+      expect(comment.deletable_by?(create(:user))).to be(false)
+    end
+
+    it "is false for nil" do
+      expect(comment.deletable_by?(nil)).to be(false)
+    end
+  end
 end

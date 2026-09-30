@@ -9,4 +9,6 @@ class Comment < ApplicationRecord
   normalizes :body, with: ->(body) { body.strip }
 
   scope :oldest_first, -> { order(:created_at, :id) }
+
+  def deletable_by?(user) = user.present? && user_id == user.id
 end

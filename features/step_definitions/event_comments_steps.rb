@@ -43,10 +43,10 @@ Then("the comments section has no script or link elements") do
   expect(comments_section.find("#comments-list")).to have_no_css("script, a", visible: :all)
 end
 
-When("I note how many queries ran against users") do
-  @noted_users_queries = @queries.grep(/\bFROM "users"/).size
+When("I note how many queries ran against {word}") do |table|
+  (@noted_queries ||= {})[table] = @queries.grep(/\bFROM "#{table}"/).size
 end
 
-Then("the same number of queries ran against users as noted") do
-  expect(@queries.grep(/\bFROM "users"/).size).to eq(@noted_users_queries)
+Then("the same number of queries ran against {word} as noted") do |table|
+  expect(@queries.grep(/\bFROM "#{table}"/).size).to eq(@noted_queries.fetch(table))
 end
