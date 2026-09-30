@@ -291,6 +291,8 @@ The wizard is a front end for the CLI, not a second implementation. Every button
 `plan-driven` command in the background, and the panel on the right shows that command and its
 output as it runs, exactly as you'd see it in a terminal:
 
+![The wizard's Approve step, with the command it ran and its output](docs/images/18-wizard.png)
+
 ```
 $ bin/plan-driven edit PD-3 database_changes --from tmp/plan_driven/wizard/sections/PD-3-database_changes-1f2e.md --yes
 ✓ Database changes updated; PD-3 is now revision 2 (draft)

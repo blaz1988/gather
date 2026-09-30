@@ -29,6 +29,20 @@ All notable changes to this project are documented here. The format follows
   and the step it sits under. Before, the word "expand" or "contract" anywhere in Database
   changes excused every destructive change in the section. Headings, negated sentences,
   rollback notes and tables the plan creates are no longer read as removals.
+- Terminal tables fit the terminal width, cutting the last column short instead of wrapping.
+- When answers are piped into `plan-driven new`, the interview prints each answer after its
+  question, so the transcript reads like the terminal session.
+
+### Fixed
+
+- `evidence` always runs Cucumber with `RAILS_ENV=test`. Started from a development server,
+  as the wizard does, it inherited `RAILS_ENV=development` and ran the scenarios against the
+  development database. The wizard also no longer passes the server's `RAILS_ENV` to commands.
+- `remove_check_constraint` and other `remove_*` methods that drop no data are no longer
+  destructive changes; `remove_column(s)`, `remove_reference`, `remove_timestamps`,
+  `drop_table`, `rename_*` and `change_column` still are.
+- Ticket coverage asks for tickets only for tables the plan creates or changes. Tables the
+  plan names in prose, or that already exist in the schema, no longer need their own ticket.
 
 ## [0.1.0] - 2026-09-30
 

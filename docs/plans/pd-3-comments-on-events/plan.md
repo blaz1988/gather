@@ -1,6 +1,6 @@
 # PD-3: Comments on events
 
-*Status: tickets approved · Revision 3 · Created by Ivan Blažević <ivan.blazevic@rubycode.co> · 30 September 2026*
+*Status: tickets approved · Revision 2 · Created by Ivan Blažević <ivan.blazevic@rubycode.co> · 30 September 2026*
 
 # Overview
 
@@ -24,203 +24,300 @@ Team Gather. Ana Kovač reviews the pull requests.
 
 ## Existing Data Structure
 
-These are the existing models, tables and files the change touches. The schema is SQLite (`db/schema.rb`, version `2026_09_29_214624`), and primary and foreign keys are `integer`.
+The models and code below already exist. This change either touches them or copies their patterns. Everything the feature adds is new and is described under Database changes and Application changes.
 
-### Event — `app/models/event.rb` → `events`
-- Columns: `id` integer not null, `title` string not null, `description` text nullable, `starts_at` datetime not null, `venue` string not null, `capacity` integer not null, `organizer_id` integer not null, `created_at` / `updated_at` datetime not null.
-- Indexes: `index_events_on_organizer_id`, `index_events_on_starts_at`. Foreign key `events.organizer_id → users.id`.
-- Associations: `belongs_to :organizer, class_name: "User"`, `has_many :rsvps, dependent: :delete_all`, `has_many :attendees` (going RSVPs only) `through: :rsvps, source: :user`.
-- Relevant methods: `organized_by?(user)` returns true when `user.present? && organizer_id == user.id`. This is the only organizer check in the app, and it is used by `EventsController#require_organizer` and by the views. `rsvps_open?` is `starts_at.future?`.
+### Event: `app/models/event.rb` (table `events`)
 
-### Rsvp — `app/models/rsvp.rb` → `rsvps`
-- Columns: `id`, `event_id` integer not null, `user_id` integer not null, `status` string not null (check constraint `status IN ('going', 'waitlisted')`), timestamps.
-- Indexes: unique `(event_id, user_id)`, `(event_id, status, created_at)`, `user_id`. Foreign keys to `events` and `users`.
-- Associations: `belongs_to :event`, `belongs_to :user`. Scope `in_line_order` orders by `created_at, id`.
-- This model does not change. It is listed because the new section goes below the RSVP card, `app/views/events/_rsvp_card.html.erb`, and because its `event_id` / `user_id` columns, foreign keys and ordering are the pattern the new table follows.
+| Column | Type | Null |
+|---|---|---|
+| `id` | integer | not null |
+| `title` | string | not null |
+| `description` | text | null |
+| `starts_at` | datetime | not null |
+| `venue` | string | not null |
+| `capacity` | integer | not null |
+| `organizer_id` | integer | not null, FK to `users` |
+| `created_at` / `updated_at` | datetime | not null |
 
-### User — `app/models/user.rb` → `users`
-- Columns: `id`, `email_address` string not null (unique index), `password_digest` string not null, `name` string not null **default `""`**, timestamps.
-- Associations: `has_many :sessions, dependent: :destroy`, `has_many :rsvps, dependent: :destroy`, `has_many :organized_events, class_name: "Event", foreign_key: :organizer_id, dependent: :destroy`.
-- Validates `name` presence. Because of the database default, rows created before that validation may still have an empty `name`.
+Indexes: `index_events_on_organizer_id`, `index_events_on_starts_at`.
 
-### Session — `app/models/session.rb` → `sessions`
-- Columns: `id`, `user_id` integer not null, `ip_address`, `user_agent`, timestamps. `belongs_to :user`.
-- Used by `app/controllers/concerns/authentication.rb` (`resume_session`, `require_authentication`, `authenticated?`) to set `Current.user`. Every controller requires sign-in unless it calls `allow_unauthenticated_access`.
+Associations:
+- `belongs_to :organizer, class_name: "User"`
+- `has_many :rsvps, dependent: :delete_all`
+- `has_many :attendees, -> { merge(Rsvp.going) }, through: :rsvps, source: :user`
 
-### Code the change touches
-- `app/controllers/events_controller.rb`: `show` sets `@rsvp`, and sets `@rsvps` only for the organizer. `index` and `show` allow guests.
-- `app/views/events/show.html.erb`: a two-column `.event__layout`. The left column is the `.event__description` card. The right column is the `aside#event-facts`, which holds the facts list, the `events/rsvp_card` partial, the "Edit event" link and, for the organizer, the `events/attendees` partial.
+The method that matters here is `Event#organized_by?(user)`. It returns `user.present? && organizer_id == user.id`. The app uses it for every organizer check, both in `EventsController#require_organizer` and in the views.
+
+### User: `app/models/user.rb` (table `users`)
+
+| Column | Type | Null / default |
+|---|---|---|
+| `id` | integer | not null |
+| `email_address` | string | not null, unique index |
+| `password_digest` | string | not null |
+| `name` | string | not null, **default `""`** |
+| `created_at` / `updated_at` | datetime | not null |
+
+Associations:
+- `has_many :sessions, dependent: :destroy`
+- `has_many :rsvps, dependent: :destroy`
+- `has_many :organized_events, class_name: "Event", foreign_key: :organizer_id, inverse_of: :organizer, dependent: :destroy`
+
+The model has `validates :name, presence: true`, but the column defaults to an empty string. Rows created before the validation existed could therefore have a blank `name`.
+
+### Rsvp: `app/models/rsvp.rb` (table `rsvps`)
+
+This model does not change. It is the pattern to copy:
+- It has `event_id` and `user_id` columns, both not null with foreign keys.
+- It has a composite index `[event_id, status, created_at]`.
+- It orders rows with `scope :in_line_order, -> { order(:created_at, :id) }`.
+- It logs with `Rails.logger.info` using `key=value` pairs.
+
+### Session: `app/models/session.rb` (table `sessions`)
+
+This model does not change. The `Authentication` concern (`app/controllers/concerns/authentication.rb`) resolves `Current.session` and `Current.user` from it.
+
+### Related existing code
 - `config/routes.rb`: `resources :events, except: :destroy do resource :rsvp, only: %i[ create destroy ] end`.
-- There is no authorization library such as Pundit. Permission checks are model predicates like `Event#organized_by?`, called from controllers and views.
+- `app/controllers/events_controller.rb`: `allow_unauthenticated_access only: %i[ index show ]` plus `resume_session`. `#show` sets `@rsvp`, and sets `@rsvps` only for the organizer.
+- `app/controllers/rsvps_controller.rb`: a nested controller with `set_event` via `Event.find(params[:event_id])`. `require_authentication` redirects guests to sign-in.
+- `app/views/events/show.html.erb`: `<aside class="card event__facts" id="event-facts">` renders `events/rsvp_card`, then the organizer's **Edit event** link, then `events/attendees`.
+- `app/views/events/_rsvp_card.html.erb`: the card with `id="rsvp-card"`.
+- `app/helpers/application_helper.rb`: `event_time(event)` formats times as `%A, %-d %B %Y · %H:%M`.
 
 # Architectural changes
 
 ### Target design
-Nothing in the schema stores comments today. This plan adds a new `Comment` model and `comments` table. A comment belongs to an `Event` and to the `User` who wrote it. It follows the same request pattern as RSVPs: a nested, resourceful controller submits a normal form or `button_to`, then redirects back to the event page with a flash message. There is no JavaScript beyond Turbo Drive, which is already installed, and there are no background jobs.
 
-### Data flow
-1. **Read.** `EventsController#show` also loads `@comments = @event.comments.chronological.includes(:user)`. This adds one query for comments and one for their authors. Guests can read comments, because `show` already allows guests.
-2. **Create.** A signed-in person submits the form to `POST /events/:event_id/comments`. `CommentsController#create` builds the comment with `@event.comments.build(comment_params.merge(user: Current.user))`. On success it redirects to `event_path(@event, anchor: "comments")` with the notice "Comment posted." On a validation failure it redirects to the same place with the error as an alert. This keeps the controller as small as `RsvpsController`. Whether to render the form again with the typed text kept is under Outstanding questions.
-3. **Delete.** The person clicks `button_to "Delete"`, which sends `DELETE /events/:event_id/comments/:id`. The controller finds the comment through `@event.comments.find(params[:id])` and checks `comment.deletable_by?(Current.user)`. That returns true for the author or for the event's organizer, using `event.organized_by?(user)`. If allowed, the comment is hard-deleted and the controller redirects with the notice "Comment deleted." If not, it redirects with an alert and nothing is deleted.
-4. **Guests.** `CommentsController` does not call `allow_unauthenticated_access`, so `require_authentication` sends guests to sign in, the same as for RSVPs. Instead of the form, the page shows a "Sign in to comment" link to `new_session_path`.
+Comments are added as one new resource nested under events. The request flow stays the same as for RSVPs: a plain form post, a redirect back to `event_path`, and a flash message. There are no Turbo Streams, no background jobs and no broadcasting.
 
-### Placement
-The comments section is a new partial, `app/views/events/_comments.html.erb`, rendered below the RSVP card. The RSVP card sits in the narrow `aside#event-facts`. This plan places the comments as a full-width `section#comments.card` under `.event__layout`, which puts it below the RSVP card on every screen size and keeps long text and links readable. The alternative is to render it inside the aside after the attendees list. That choice is under Outstanding questions.
+**Creating a comment**
+1. A signed-in user submits the form on `events/show`, which sends `POST /events/:event_id/comments`.
+2. `CommentsController#create` finds the event and builds `@event.comments.new(body:, user: Current.user)`.
+3. On success it redirects to `event_path(@event, anchor: "comments")` with the notice `Comment posted.`
+4. On validation failure it redirects to the event with the model's error as the alert. This keeps the controller from repeating the `EventsController#show` setup.
 
-### Legacy coexistence
-This change adds a new table only. No existing column is renamed, moved or read differently, and no existing data needs backfilling, so there is nothing to dual-write. Every event starts with zero comments and the section shows an empty state. The one legacy edge case is users whose `name` is `""` (the database default). The view shows a fallback label for them instead of a blank author.
+**Deleting a comment**
+1. The user clicks a button that sends `DELETE /events/:event_id/comments/:id`.
+2. The controller loads `@event.comments.find(params[:id])`. Because the lookup is scoped to the event, a comment id from another event returns 404.
+3. It checks `comment.deletable_by?(Current.user)`. This is true for the author or for the event's organizer (`event.organized_by?(user)`).
+4. It hard-deletes the comment and redirects with `Comment deleted.`
 
-In expand-and-contract terms:
-- **Expand:** migration and model.
-- **Dual write and backfill:** not applicable.
-- **Switch reads:** the controller and view ship.
-- **Contract:** none is planned.
+**Reading comments**
+- `EventsController#show` loads `@comments = @event.comments.oldest_first.includes(:user)`.
+- Anyone can read comments, including guests, because `show` already allows unauthenticated access.
+- Guests see a `Sign in to comment` link instead of the form. This matches the RSVP card pattern.
+
+**Authorization**
+- Authorization is a model predicate, `Comment#deletable_by?(user)`.
+- This follows the style of the existing `Event#organized_by?`. The app has no policy library (no Pundit or ActionPolicy in the `Gemfile`), and this plan doesn't add one.
+
+### How legacy data coexists during rollout
+
+This is a new, empty table with no existing data to migrate. The expand, dual write, backfill, switch reads and contract sequence therefore reduces to **expand only**:
+- **Expand:** create `comments`. Old code never reads it, so the migration can be deployed before or together with the new code.
+- **Dual write and backfill:** not applicable. There is no legacy source of comments, and chat history is not imported.
+- **Switch reads:** the new view partial reads from `comments` straight away.
+- **Contract:** nothing to remove.
+
+One piece of legacy data does need handling: `users.name` defaults to `""`, so older users may have a blank name. The comment partial must show a fallback such as `Someone` instead of an empty author line.
+
+### Deletion cascades
+
+The app deletes events through `User has_many :organized_events, dependent: :destroy`. Deleting an event or a user must not fail on the new foreign keys:
+- `Event has_many :comments, dependent: :delete_all`, the same as `rsvps`.
+- `User has_many :comments, dependent: :delete_all`.
 
 ## Database changes
 
-### Phase 1: expand (new table only)
-Migration `db/migrate/<timestamp>_create_comments.rb`. It declares the check constraint inside `create_table`, the same way `db/migrate/20260929214624_create_rsvps.rb` declares `rsvps_status_check`. On SQLite, this puts the constraint in the `CREATE TABLE` statement. Adding a constraint to an existing table later would force a table rebuild.
+### New table: `comments`
+
+This ships as one additive migration, `db/migrate/<timestamp>_create_comments.rb`. Generate it with `bin/rails g model Comment event:references user:references body:text`, then edit it to match the code below. It follows `db/migrate/20260929214624_create_rsvps.rb`, which also passes `index: false` on `t.references :event` and declares its check constraint inside `create_table`.
 
 ```ruby
-class CreateComments < ActiveRecord::Migration[8.1]
+class CreateComments < ActiveRecord::Migration[8.0]
   def change
     create_table :comments do |t|
       t.references :event, null: false, foreign_key: true, index: false
       t.references :user, null: false, foreign_key: true
       t.text :body, null: false
+
       t.timestamps
 
-      t.index %i[ event_id created_at ]
+      t.index [ :event_id, :created_at ]
       t.check_constraint "length(trim(body)) > 0 AND length(body) <= 1000", name: "comments_body_length_check"
     end
   end
 end
 ```
 
-The resulting `comments` table:
+Use the same `ActiveRecord::Migration[x.y]` version as the existing migrations.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
-| `id` | integer | not null | auto | primary key |
-| `event_id` | integer | not null | none | foreign key to `events.id` |
-| `user_id` | integer | not null | none | foreign key to `users.id`; the author |
-| `body` | text | not null | none | 1 to 1,000 characters; must not be blank |
-| `created_at` | datetime | not null | none | shown as "posted at" |
-| `updated_at` | datetime | not null | none | never changes, because editing is out of scope |
+| `id` | integer | not null | auto | Primary key. |
+| `event_id` | integer | not null | none | Foreign key to `events.id`. |
+| `user_id` | integer | not null | none | Foreign key to `users.id`. |
+| `body` | text | not null | none | Between 1 and 1,000 characters, enforced by the model and by `comments_body_length_check`. |
+| `created_at` | datetime | not null | none | Used for ordering and for "when it was posted". |
+| `updated_at` | datetime | not null | none | |
 
-Indexes:
-- `index_comments_on_event_id_and_created_at` on `(event_id, created_at)`. It serves the ordered list on the event page. Its leading column also covers lookups by `event_id` alone, so `t.references :event` uses `index: false`.
-- `index_comments_on_user_id` on `(user_id)`, created by `t.references :user`. It supports `User#comments` and removing a user's comments when the user is deleted.
+The database is SQLite (`gem "sqlite3"`), so the foreign key columns are `integer`, as in `rsvps`.
 
-Foreign keys:
-- `comments.event_id → events.id`
-- `comments.user_id → users.id`
+**Indexes**
+- `index_comments_on_event_id_and_created_at` on `[event_id, created_at]`. This serves the event page query `WHERE event_id = ? ORDER BY created_at, id`. It replaces the plain `event_id` index that `t.references` would otherwise create, which is why `t.references :event` has `index: false`.
+- `index_comments_on_user_id` on `user_id`. `t.references :user` creates this by default. It serves `user.comments.delete_all` when a user is deleted.
 
-Neither foreign key uses `on_delete`. Clean-up happens through `Event has_many :comments, dependent: :delete_all` and `User has_many :comments, dependent: :destroy`, which matches how `rsvps` works today.
+**Foreign keys**
+- `comments.event_id` references `events.id`.
+- `comments.user_id` references `users.id`.
+- Neither has `on_delete`. Deletion cascades are handled in the application with `dependent: :delete_all` on `Event#comments` and `User#comments` (see Application changes), the same way `rsvps` works.
 
-### The 1,000-character limit, in two places
-The limit is enforced in the database and in the model, and both must use the same number.
+**Check constraint: `comments_body_length_check`**
 
-- **Database:** `comments_body_length_check` is `length(trim(body)) > 0 AND length(body) <= 1000`.
-  - The first part rejects empty bodies and bodies made only of spaces.
-  - The second part caps the stored value at 1,000 characters. SQLite's `length()` counts characters, not bytes, for text values, so emoji and accented letters count as one character each, the same as in Ruby.
-- **Model (`app/models/comment.rb`):** `normalizes :body, with: ->(body) { body.strip }` and `validates :body, presence: true, length: { maximum: 1000 }`.
-  - Because the model strips the body before saving, the database checks the value after stripping. That is why the constraint measures `length(body)` and not `length(trim(body))` for the upper bound.
-  - SQLite's `trim()` removes only spaces, while Ruby's `strip` also removes newlines and tabs. So the model is the stricter check for blank bodies, and the constraint is a backstop for writes that skip validations, such as `insert_all` and `update_column`.
-- **Form:** the `text_area` uses `maxlength: 1000`, replacing 2000 in Application changes.
-  - Browsers count a line break as 1 character for `maxlength`, but submit it as `\r\n`, which is 2 characters on the server. A comment with many line breaks can pass the browser check and still fail the 1,000 limit. The model validation then rejects it with a readable error before the constraint is reached.
-  - Whether to normalize `\r\n` to `\n` in `normalizes` is added to Outstanding questions.
+The constraint is required, not optional. It follows the `rsvps_status_check` precedent in `db/schema.rb`.
+- `length(trim(body)) > 0` rejects an empty or space-only body.
+- `length(body) <= 1000` rejects a body longer than 1,000 characters. SQLite's `length()` counts characters on text values, not bytes, so accented names and emoji count the same way Ruby's `String#length` does.
+- The constraint is safe to add because the table is created empty.
 
-### Other tables
-No changes to `events`, `rsvps`, `users` or `sessions`. No column is removed or renamed, so no `ignored_columns` step is needed.
+**The model must use the same limit.** `Comment::MAX_LENGTH` changes from `2_000` to `1_000`, and `validates :body, length: { maximum: MAX_LENGTH }` uses it. The textarea's `maxlength: Comment::MAX_LENGTH` picks up the new value automatically. The model validation is what users actually hit, because it returns a readable error instead of raising `ActiveRecord::StatementInvalid`. The constraint only catches writes that skip validations, such as `update_column`, `insert_all` or raw SQL.
 
-### Expand and contract
-- **Expand:** this migration.
-- **Dual write and backfill:** not needed. The table is new and starts empty.
-- **Switch reads:** not needed. No existing read moves to this table.
-- **Contract:** none.
+The model and the database check blank bodies slightly differently. `normalizes :body` uses Ruby's `strip`, which removes all whitespace, including newlines and tabs. SQLite's `trim()` removes only spaces. The model check is the stricter of the two, so every body the model accepts also passes the constraint.
 
-### Changing the limit later
-Raising or lowering 1,000 later takes a new migration that drops and re-adds `comments_body_length_check` with `remove_check_constraint` and `add_check_constraint`. On SQLite, Rails does this by rebuilding the table. It must ship together with the matching model validation change.
+One edge case at the limit: browsers count a line break as one character for `maxlength`, but they submit it as `\r\n`, which is two characters. A multi-line comment close to 1,000 characters can therefore pass the browser check and then fail the model validation. It fails with an alert, not with a database error, but the typed text is lost on redirect. See Outstanding questions for whether to normalize `\r\n` to `\n`.
 
-Lowering the limit also needs a check first for existing rows longer than the new limit, because the new constraint would reject them. Settle the number before this migration ships.
+### Changes to existing tables
+
+None. `events`, `users`, `rsvps` and `sessions` are not altered. Nothing is removed or renamed, so no `ignored_columns` step is needed.
+
+### Rollout order (expand, dual write, backfill, switch reads, contract)
+
+This is a new table with no legacy data, so only the expand step applies.
+1. **Expand:** run the migration. The table is empty and the running code does not use it, so it can deploy before the application code or together with it.
+2. **Dual write and backfill:** not applicable. There is no older source of comments, and chat history is not imported.
+3. **Switch reads:** the new code reads from `comments` straight away.
+4. **Contract:** nothing to remove.
+
+If the limit changes later, the constraint must change in its own migration: remove `comments_body_length_check` and add it again with the new value. Raising the limit is safe. Lowering it fails if existing rows are too long, so those rows have to be found and handled before the new constraint is added.
 
 ### Rollback
-The migration is reversible: rolling it back drops `comments`. Rolling back after release deletes every comment posted since then. To hide the feature but keep the data, revert the view and controller changes instead.
+
+`bin/rails db:rollback` drops `comments`, including its indexes and check constraint, and deletes every posted comment. Roll back the code first, and drop the table only if the feature is abandoned.
 
 ## Application changes
 
 ### Model: `app/models/comment.rb` (new)
+
 ```ruby
 class Comment < ApplicationRecord
+  MAX_LENGTH = 2_000
+
   belongs_to :event
   belongs_to :user
 
-  normalizes :body, with: ->(body) { body.strip }
-  validates :body, presence: true, length: { maximum: 2000 }
+  validates :body, presence: true, length: { maximum: MAX_LENGTH }
 
-  scope :chronological, -> { order(:created_at, :id) }
+  normalizes :body, with: ->(body) { body.strip }
+
+  scope :oldest_first, -> { order(:created_at, :id) }
 
   def deletable_by?(user)
     user.present? && (user_id == user.id || event.organized_by?(user))
   end
 end
 ```
-- Ordering by `created_at, id` matches `Rsvp.in_line_order`, so two comments posted in the same second still come out in a fixed order.
+
+- `MAX_LENGTH` is an assumption (see Outstanding questions).
+- The `id` tiebreaker in `oldest_first` keeps the order stable when two comments share a `created_at`, as `Rsvp.in_line_order` does.
 
 ### Model: `app/models/event.rb`
-- Add `has_many :comments, dependent: :delete_all`, the same dependency as `rsvps`.
+
+Add `has_many :comments, dependent: :delete_all` next to `has_many :rsvps`. Nothing else changes.
 
 ### Model: `app/models/user.rb`
-- Add `has_many :comments, dependent: :destroy`, the same as `rsvps` and `sessions`. Without it, the `comments.user_id` foreign key would block deleting a user. Whether a deleted user's comments should instead stay, shown as anonymous, is under Outstanding questions.
+
+Add `has_many :comments, dependent: :delete_all`. `delete_all` avoids loading every comment when a user is deleted. `Comment` has no callbacks that need to run.
 
 ### Routes: `config/routes.rb`
+
 ```ruby
 resources :events, except: :destroy do
   resource :rsvp, only: %i[ create destroy ]
   resources :comments, only: %i[ create destroy ]
 end
 ```
-This gives `event_comments_path(event)` (POST) and `event_comment_path(event, comment)` (DELETE).
 
 ### Controller: `app/controllers/comments_controller.rb` (new)
-- Requires sign-in for every action (the `Authentication` default).
-- `before_action :set_event` with `Event.find(params[:event_id])`, as in `RsvpsController`.
-- `rate_limit to: 10, within: 1.minute, only: :create, with: -> { redirect_to event_path(@event, anchor: "comments"), alert: "You're commenting too fast. Try again in a minute." }`, using the Rails 8 built-in rate limiter. The numbers are an assumption.
-- `create`: `@event.comments.build(params.expect(comment: [ :body ]).merge(user: Current.user))`. The `user_id` never comes from params. On save it redirects with the notice "Comment posted." Otherwise it redirects with `alert: comment.errors.full_messages.to_sentence`.
-- `destroy`: `comment = @event.comments.find(params[:id])`. Scoping the lookup to the event means the id in the URL can't reach a comment on another event: a mismatch raises `RecordNotFound`, which returns 404. If `comment.deletable_by?(Current.user)`, it calls `comment.destroy`, logs `Rails.logger.info("Comment deleted: comment_id=... event_id=... by_user_id=... by_organizer=...")` and redirects with the notice "Comment deleted." Otherwise it redirects with the alert "You can't delete this comment."
-- Whether comments are allowed after `starts_at`: this plan assumes yes, so there is no `rsvps_open?` check. See Outstanding questions.
+
+- **Authentication:** inherits `require_authentication` from `ApplicationController`. There is no `allow_unauthenticated_access`, so guests are redirected to `new_session_path`, the same as in `RsvpsController`.
+- **`before_action :set_event`:** `@event = Event.find(params[:event_id])`. Unknown events return 404.
+- **`create`:**
+  - `@comment = @event.comments.new(comment_params.merge(user: Current.user))`.
+  - If it saves, `redirect_to event_path(@event, anchor: "comments"), notice: "Comment posted."`.
+  - Otherwise, `redirect_to event_path(@event, anchor: "comments"), alert: @comment.errors.full_messages.to_sentence`.
+- **`destroy`:**
+  - `comment = @event.comments.find(params[:id])`.
+  - If `comment.deletable_by?(Current.user)` is false, `redirect_to event_path(@event), alert: "You can't delete this comment."`. This mirrors `require_organizer`.
+  - Otherwise call `comment.destroy!`, log it, and `redirect_to event_path(@event, anchor: "comments"), notice: "Comment deleted."`.
+- **`comment_params`:** `params.expect(comment: [ :body ])`. `user_id` and `event_id` are never taken from params.
+- **Logging** (same style as `Rsvp#promote_next_waitlisted`): `Rails.logger.info("Comment deleted: comment_id=#{id} event_id=#{event_id} author_id=#{user_id} deleted_by=#{Current.user.id}")`.
+- **Rate limiting (optional):** `rate_limit to: 10, within: 1.minute, only: :create`, using the Rails 8 built-in. This depends on the production cache store (see Infrastructure changes and Outstanding questions).
 
 ### Controller: `app/controllers/events_controller.rb`
-- In `show`, add `@comments = @event.comments.chronological.includes(:user)`. Other actions don't change.
+
+In `#show`, add:
+
+```ruby
+@comments = @event.comments.oldest_first.includes(:user)
+```
+
+The form must build `Comment.new`, not `@event.comments.build`. Building on the association would add an unsaved record to the loaded list.
 
 ### Views
-- **New `app/views/events/_comments.html.erb`**: a `section.card#comments` containing:
-  - The heading `Comments (<%= @comments.size %>)`. `size` uses the loaded records, so there is no extra `COUNT` query.
-  - An ordered list. Each item has `id=dom_id(comment)` and shows the author name. Blank names fall back to "Gather member", because older users may have `name = ""`. The item shows the post time as `<time datetime="<%= comment.created_at.iso8601 %>">` formatted as `%-d %B %Y · %H:%M`, the same format as `event_time`, and the body. For each comment where `comment.deletable_by?(Current.user)`, it shows `button_to "Delete", event_comment_path(@event, comment), method: :delete, class: "button button--ghost", data: { turbo_confirm: "Delete this comment?", turbo_submits_with: "Deleting…" }`.
-  - The body is rendered with `simple_format(h(comment.body))`. Escaping first means users can't inject markup, including `<a>` tags that `simple_format` would otherwise allow. Pasted URLs appear as plain text. Turning URLs into clickable links is under Outstanding questions, and there is no `rails_autolink` gem in the `Gemfile` today.
-  - Empty state: "No comments yet. Ask a question or share a link."
-  - For signed-in users, a `form_with model: [ @event, Comment.new ]` with a `text_area :body, required: true, maxlength: 2000` and the submit button "Post comment" (`turbo_submits_with: "Posting…"`). For guests, `link_to "Sign in to comment", new_session_path, class: "button"`, using `authenticated?` the same way `_rsvp_card.html.erb` does.
-- **`app/views/events/show.html.erb`**: add `<%= render "events/comments" %>` after the closing `</div>` of `.event__layout` and inside the `<article>`.
-- **`app/assets/stylesheets/application.css`**: minimal styles for `.comments` list items (author, muted timestamp, body, delete button). Reuse the existing `card`, `muted`, `small` and `button--ghost` classes.
 
-### Policies
-There is no policy layer in the app, so this plan doesn't add one. `Comment#deletable_by?` is the single source of the delete rule, used by both the controller and the view.
+**`app/views/events/show.html.erb`:** render `events/comments` directly after `render "events/rsvp_card"`, as the team asked. Whether it sits inside the sidebar `aside` or below `.event__layout` is an open question.
 
-### Jobs
-None.
+**`app/views/events/_comments.html.erb` (new):** a `<section class="section comments" id="comments">` containing:
+- The heading `Comments (N)`, using `@comments.size`. The records are already loaded, so this runs no extra count query.
+- `<ol class="comments__list" id="comments-list">` rendering `render partial: "comments/comment", collection: @comments`.
+- When there are no comments: `<p class="muted small">No comments yet. Ask a question.</p>`.
+- For signed-in users (`authenticated?`): `form_with model: [ @event, Comment.new ], id: "new-comment"`, with `text_area :body, required: true, maxlength: Comment::MAX_LENGTH` and a submit button using `data: { turbo_submits_with: "Posting…" }`. `maxlength` keeps an over-long comment from being submitted and then lost on redirect.
+- For guests: `link_to "Sign in to comment", new_session_path, class: "button"`.
+
+**`app/views/comments/_comment.html.erb` (new):** an `<li id="<%= dom_id(comment) %>">` containing:
+- The author: `comment.user.name.presence || "Someone"`. The fallback covers legacy users with blank names.
+- The time: `<time datetime="<%= comment.created_at.iso8601 %>"><%= comment_time(comment) %></time>`.
+- The body: `simple_format(h(comment.body))`. The explicit `h` makes any HTML the user typed show as text. Without it, `simple_format`'s sanitizer allowlist would let tags such as `<a>` through.
+- If `comment.deletable_by?(Current.user)`: `button_to "Delete", event_comment_path(comment.event_id, comment), method: :delete, class: "button button--ghost", form: { data: { turbo_confirm: "Delete this comment?" } }`.
+
+### Helper: `app/helpers/application_helper.rb`
+
+Add `comment_time(comment)`, which returns `comment.created_at.strftime("%-d %B %Y · %H:%M")` to match `event_time`. If the team prefers relative times, use `time_ago_in_words` instead (see Outstanding questions).
+
+### Styles
+
+Add `.comments`, `.comments__list` and `.comment` rules next to the existing `.attendees` and `.people` styles, reusing `muted`, `small`, `badge` and `button--ghost`.
+
+### Factory: `spec/factories/comments.rb` (new)
+
+`factory :comment` with `association :event`, `association :user` and `body { "Is there parking nearby?" }`.
 
 ## Infrastructure changes
 
-None. There are no new queues, jobs, external services, gems or environment variables.
+There are no infrastructure changes. This feature adds:
+- no queues or Active Job jobs
+- no mailers (email notifications are out of scope)
+- no external services
+- no Action Cable or broadcasting
 
-- **Rate limiting** uses Rails' built-in `rate_limit`, which stores counters in `Rails.cache`. Check that production's cache store is shared across Puma workers and hosts. Otherwise the limit applies per process only. See Outstanding questions.
-- **Feature flags**: the app has no flag system (no Flipper or similar in the `Gemfile`). This plan ships without a flag. If the team wants a dark launch, the simplest gate is rendering `events/comments` only when an environment variable such as `COMMENTS_ENABLED` is set, but that is not planned by default.
-- **Rollout order**, one deploy per step or combined:
-  1. Migration and `Comment` model, plus the associations on `Event` and `User`. Nothing reads or writes comments yet.
-  2. Routes and `CommentsController`.
-  3. `events/_comments` partial and the change to `EventsController#show`. This makes the feature visible.
-- **Rollback:** revert step 3 to hide the feature and keep the data. Only roll back the migration if the data should be discarded.
+**Feature flags:** the repository has no feature flag system, and this plan doesn't add one. The feature goes live when the code is deployed. If a staged launch is needed, the team has to decide how (see Outstanding questions).
+
+**Cache store (only if rate limiting is used):** `config.cache_store` is commented out in `config/environments/production.rb`. Rails' built-in `rate_limit` keeps its counters in `Rails.cache`. Without a shared cache store, limits apply per server, or not at all. In test, `:null_store` turns rate limiting off. If the team adopts `rate_limit`, a production cache store must be configured first. Solid Cache is one option, but it is not in the `Gemfile` today.
+
+**Rollout order:**
+1. Merge the migration, model and associations. This is safe to deploy alone, since nothing reads the table yet.
+2. Merge the controller, routes and views. This makes the feature visible.
+3. Steps 1 and 2 can ship in one deploy. Splitting them only lets the database step be reviewed on its own.
 
 # Work overview
 
@@ -232,381 +329,336 @@ Replies and threads, editing a comment, email notifications, a moderation queue.
 
 | # | Title | Type | Kind | Estimate | Depends | Issue |
 | --- | --- | --- | --- | --- | --- | --- |
-| T1 | Migration: Create comments table | TASK | migration | 2 | - | [#23](https://github.com/blaz1988/gather/issues/23) |
-| T2 | Show comments on the event page | STORY | code | 5 | T1 | [#24](https://github.com/blaz1988/gather/issues/24) |
-| T3 | Post a comment on an event | STORY | code | 3 | T2 | [#25](https://github.com/blaz1988/gather/issues/25) |
-| T4 | Limit how fast one person can post comments | STORY | code | 2 | T3 | [#26](https://github.com/blaz1988/gather/issues/26) |
-| T5 | Delete your own comment | STORY | code | 3 | T3 | [#27](https://github.com/blaz1988/gather/issues/27) |
-| T6 | Let organizers delete any comment on their event | STORY | code | 2 | T5 | [#28](https://github.com/blaz1988/gather/issues/28) |
+| T1 | Migration: Create comments table | TASK | migration | 2 | - | [#34](https://github.com/blaz1988/gather/issues/34) |
+| T2 | Add Comment model and delete comments with their event or author | TASK | code | 2 | T1 | [#35](https://github.com/blaz1988/gather/issues/35) |
+| T3 | Show comments on the event page | STORY | code | 3 | T2 | [#36](https://github.com/blaz1988/gather/issues/36) |
+| T4 | Post a comment on an event | STORY | code | 3 | T3 | [#37](https://github.com/blaz1988/gather/issues/37) |
+| T5 | Let authors delete their own comments | STORY | code | 3 | T4 | [#38](https://github.com/blaz1988/gather/issues/38) |
+| T6 | Let organizers delete any comment on their event | STORY | code | 2 | T5 | [#39](https://github.com/blaz1988/gather/issues/39) |
 
-**Estimated total: 17 points**
+**Estimated total: 15 points**
 
 ### T1. Migration: Create comments table
 
-Add a new `comments` table that stores one comment per row. Each row links to an event and to the user who wrote it. The table has columns `id` (integer primary key), `event_id` (integer, not null, foreign key to `events.id`), `user_id` (integer, not null, foreign key to `users.id`), `body` (text, not null, no default) and `created_at` / `updated_at` (datetime, not null). The database must protect the body itself. A check constraint named `comments_body_length_check` rejects empty bodies, bodies made only of spaces and bodies longer than 1000 characters. Declare the constraint inside `create_table`, so SQLite puts it in the CREATE TABLE statement and never needs a table rebuild. Add a composite index on `(event_id, created_at)` for the ordered list on the event page, and an index on `user_id`. Neither foreign key cascades on delete. Later tickets clean up comments through model associations, the same way `rsvps` works. This ticket adds no model or application code, so nothing reads or writes the table yet. Its Cucumber scenarios work directly against the database, like `features/pd-1-rsvps-with-a-waitlist/t1.feature`.
+Add one migration that creates an empty `comments` table. It stores one comment per row: which event it is on, who wrote it, and the text. The database enforces the rules on its own, before any application code reads or writes the table. No existing table changes. Old code never reads `comments`, so this migration can deploy before the application code or with it. Rolling back drops the table and every comment in it.
 
 #### Acceptance Criteria
 
-1. After migrating, the comments table exists with NOT NULL columns event_id, user_id, body, created_at and updated_at, and body has no default
-2. Inserting a comments row with an empty body fails the check constraint "comments_body_length_check"
-3. Inserting a comments row whose body is only spaces fails the check constraint "comments_body_length_check"
-4. Inserting a comments row with a 1000-character body succeeds, and a 1001-character body fails the check constraint "comments_body_length_check"
-5. A 1000-character body made of multi-byte characters such as emoji or accented letters is accepted, because the limit counts characters and not bytes
-6. The index "index_comments_on_event_id_and_created_at" covers event_id, created_at, and the index "index_comments_on_user_id" covers user_id
-7. There is no index on event_id alone
-8. Inserting a comments row for a missing event or a missing user fails with ActiveRecord::InvalidForeignKey
-9. No comments foreign key cascades on delete: deleting an event or a user that has a comments row directly in the database fails with ActiveRecord::InvalidForeignKey
-10. Rolling back the migration drops the comments table and leaves the events, users, rsvps and sessions tables unchanged
+1. Migrating creates the comments table with NOT NULL columns event_id, user_id, body, created_at and updated_at, and body has no default
+2. Inserting a comments row for an event or user that does not exist fails with ActiveRecord::InvalidForeignKey
+3. Inserting a comments row with an empty or space-only body fails the check constraint comments_body_length_check
+4. Inserting a comments row with a 1,001-character body fails the check constraint comments_body_length_check, and a 1,000-character body containing accented letters and emoji is accepted
+5. The index index_comments_on_event_id_and_created_at is on event_id, created_at, the index index_comments_on_user_id is on user_id, and there is no index on event_id alone
+6. Neither comments foreign key cascades on delete: deleting an event or user that has a comments row directly in the database fails with ActiveRecord::InvalidForeignKey
+7. Rolling back the comments migration drops the comments table and leaves the events, users, rsvps and sessions tables unchanged
 
 #### Implementation Notes
 
-New file `db/migrate/<timestamp>_create_comments.rb`, using `ActiveRecord::Migration[8.1]`. Follow `db/migrate/20260929214624_create_rsvps.rb`, which declares its check constraint the same way.
-
+Generate with `bin/rails g model Comment event:references user:references body:text`, then keep only the migration. Leave out the model, spec and fixture files, because T2 adds them. Existing migrations use `ActiveRecord::Migration[8.1]`, not 8.0. Follow `db/migrate/20260929214624_create_rsvps.rb`:
 ```ruby
 create_table :comments do |t|
+  # The [event_id, created_at] index already leads with event_id.
   t.references :event, null: false, foreign_key: true, index: false
   t.references :user, null: false, foreign_key: true
   t.text :body, null: false
   t.timestamps
-  t.index %i[ event_id created_at ]
+  t.index [ :event_id, :created_at ]
   t.check_constraint "length(trim(body)) > 0 AND length(body) <= 1000", name: "comments_body_length_check"
 end
 ```
-
-The limit is 1000. The plan says 2000 in its Application changes section, but its Database section states that 1000 replaces 2000. Every ticket in this set uses 1000. Confirm the number with Ana Kovač before this ticket merges, because changing it later needs another migration and a table rebuild (Outstanding question 3).
-
-Commit the regenerated `db/schema.rb`. Put the Cucumber scenarios in `features/pd-3-comments-on-events/t1.feature` with the tag `@pd-3-t1`. Add table helpers modelled on `features/support/rsvps_table.rb` and `features/step_definitions/rsvps_table_steps.rb`, and optionally a spec like `spec/db/rsvps_table_spec.rb`.
+The foreign keys have no `on_delete`, because cascades belong to the application (T2). Commit the updated `db/schema.rb`. Add `spec/db/comments_table_spec.rb` in the style of `spec/db/rsvps_table_spec.rb`, plus table helpers in `spec/support/` and `features/support/` like `rsvps_table_helpers.rb` and `rsvps_table.rb`. Write the scenarios in `features/pd-3-comments-on-events/t1.feature` with tag `@pd-3-t1`, and the steps in `features/step_definitions/comments_table_steps.rb`, following `features/pd-1-rsvps-with-a-waitlist/t1.feature`.
 
 *Touches: comments*
 
-### T2. Show comments on the event page
+### T2. Add Comment model and delete comments with their event or author
 
-I want to read the questions and links people have left on an event page, oldest first, with who wrote them and when, so that I can find answers without asking in chat again.
-
-Add the `Comment` model and a read-only comments section on the event page. Everyone can see it, including guests.
-
-Model `app/models/comment.rb`:
-- `belongs_to :event` and `belongs_to :user`.
-- `normalizes :body` strips surrounding whitespace.
-- `validates :body, presence: true, length: { maximum: 1000 }`.
-- `scope :chronological, -> { order(:created_at, :id) }`.
-
-Associations on existing models:
-- `Event`: `has_many :comments, dependent: :delete_all, inverse_of: :event`.
-- `User`: `has_many :comments, dependent: :destroy`.
-
-In `EventsController#show`, load `@comments = @event.comments.chronological.includes(:user)`.
-
-New partial `app/views/events/_comments.html.erb`:
-- A `section.card#comments` with the heading `Comments (N)`. N comes from `@comments.size`, so there is no extra COUNT query.
-- An ordered list of comments. Each item has `id=dom_id(comment)` and shows the author name. When the author's name is blank, it shows "Gather member" instead.
-- Each item shows the post time in a `<time datetime=ISO8601>` tag, formatted as `%-d %B %Y · %H:%M` like the `event_time` helper.
-- Each item shows the body rendered with `simple_format(h(comment.body))`, so any HTML the user typed appears as plain text.
-- When there are no comments, the section shows the empty state "No comments yet. Ask a question or share a link."
-
-Render the partial in `app/views/events/show.html.erb` after the closing `</div>` of `.event__layout` and inside `<article>`. This makes it a full-width section below the RSVP card. Add minimal CSS so long bodies and URLs wrap with `overflow-wrap: anywhere`. Posting and deleting come in later tickets.
+Add the `Comment` model with its validations, ordering scope and factory. Connect it to `Event` and `User` so that deleting an event or a user also deletes the related comments. Without this, the new foreign keys would block deletes: `User` destroys its `organized_events`, and the foreign keys would stop the events or users from being removed. The feature isn't visible to users yet, because there are no routes or views.
 
 #### Acceptance Criteria
 
-1. A guest opening an event page sees its comments listed oldest first, each with the author's name, the posting time and the body
-2. A signed-in person and the organizer see the same list of comments
-3. Two comments with the same created_at are always listed in id order
-4. The heading shows the number of comments, for example "Comments (3)"
-5. An event with no comments shows "No comments yet. Ask a question or share a link."
-6. The comments section appears below the RSVP card, after the two-column layout
-7. A comment whose author has an empty name shows the author as "Gather member"
-8. A comment body containing <script> or <a href=...> markup is shown as literal text, and no script or link element is created
-9. Line breaks in a comment body are shown as separate lines
-10. No email address appears on the event page when comments are present
-11. The number of SQL queries for the event page does not grow with the number of comments
-12. Deleting an event that has comments also removes its comments
-13. Deleting a user who has comments removes their comments without a foreign key error
-14. A comment is invalid without a body, with only whitespace, or with more than 1000 characters, and surrounding whitespace is stripped before saving
+1. A comment with an event, an author and a body is valid
+2. A comment whose body is blank or only whitespace, including newlines and tabs, is invalid, because the body is stripped before validation
+3. A comment of exactly 1,000 characters is valid, and one of 1,001 characters is invalid with the error 'Body is too long (maximum is 1000 characters)'
+4. Comments on an event are listed oldest first, and two comments with the same created_at are listed in id order
+5. Destroying an event deletes its comments
+6. Destroying a user deletes the comments they wrote on other people's events
+7. Destroying a user who organizes an event that has other people's comments succeeds without a foreign key error, and those comments are gone
 
 #### Implementation Notes
 
-Files to add:
-- `app/models/comment.rb`
-- `app/views/events/_comments.html.erb`
-- `spec/models/comment_spec.rb`
-- `spec/factories/comments.rb`, a factory associated with `event` and `user`
-- `features/pd-3-comments-on-events/t2.feature`, tagged `@pd-3-t2`
-- `features/step_definitions/comment_steps.rb`
+New file `app/models/comment.rb`:
+```ruby
+class Comment < ApplicationRecord
+  MAX_LENGTH = 1_000
+  belongs_to :event
+  belongs_to :user
+  validates :body, presence: true, length: { maximum: MAX_LENGTH }
+  normalizes :body, with: ->(body) { body.strip }
+  scope :oldest_first, -> { order(:created_at, :id) }
+end
+```
+`MAX_LENGTH` must be 1_000 so it matches `comments_body_length_check`. The plan's model snippet says 2_000, but its Database section overrides that. In `app/models/event.rb`, add `has_many :comments, dependent: :delete_all, inverse_of: :event` next to `has_many :rsvps`. In `app/models/user.rb`, add `has_many :comments, dependent: :delete_all`. `Comment` has no callbacks, so `delete_all` is safe. Add `spec/factories/comments.rb` with `association :event`, `association :user` and `body { "Is there parking nearby?" }`. Put specs in `spec/models/comment_spec.rb`, `spec/models/event_spec.rb` and `spec/models/user_spec.rb`, and scenarios in `features/pd-3-comments-on-events/t2.feature`. `deletable_by?` is left out on purpose: T5 and T6 add it.
 
-Files to edit:
-- `app/models/event.rb`
-- `app/models/user.rb`
-- `app/controllers/events_controller.rb` (`show` only)
-- `app/views/events/show.html.erb`
-- `app/assets/stylesheets/application.css`
-- `spec/models/event_spec.rb` and `spec/models/user_spec.rb`, for the dependent-delete specs
-- `spec/requests/events_spec.rb`
+*Touches: comments, events, users*
 
-Do not add `deletable_by?` or a Delete button yet. T5 adds them.
+### T3. Show comments on the event page
 
-The no-N+1 check depends on the event association. `inverse_of: :event` makes `comment.event` reuse the already-loaded `@event`, which T5 relies on. Test it by counting SQL queries for `show` with 1 comment and with 5 comments, and assert the count is the same.
+I want to read the comments on an event page, with who wrote each one and when, so that I can find answers to questions other people have already asked
 
-Never use `raw` or `html_safe` on the body. Reuse the existing `card`, `muted` and `small` CSS classes.
+Show a Comments section on the event page, directly after the RSVP card. Anyone can see it, including signed-out visitors. The section has the heading 'Comments (N)' and the comments oldest first. Each comment shows the author's name, when it was posted and the text. If there are no comments, it shows 'No comments yet. Ask a question.' Comment text is always shown as plain, escaped text, with line breaks kept. For older users whose name is blank, the author shows as 'Someone'. The page must load comments and their authors in a fixed number of queries, however many comments there are. This ticket adds no posting form and no delete button: T4 adds the form, and T5 and T6 add deleting.
 
-When this ticket merges alone, the page shows the empty state with no way to post yet. Release T2 and T3 in the same deploy if that intermediate state is unwanted. Placement is Outstanding question 1: this ticket assumes full width.
+#### Acceptance Criteria
+
+1. A signed-out visitor opening an event with comments sees the heading 'Comments (2)' and each comment's author name, posted time and body
+2. Comments are listed oldest first
+3. An event with no comments shows 'Comments (0)' and 'No comments yet. Ask a question.'
+4. The posted time is shown as '30 September 2026 · 15:19' inside a time element whose datetime attribute is the ISO 8601 timestamp
+5. A comment whose author has a blank name, set with update_column, shows the author as 'Someone'
+6. A comment body containing <script>alert(1)</script> and <a href="javascript:alert(1)">x</a> is shown as literal escaped text, and no script or link element is rendered
+7. A comment body with line breaks is shown as separate lines or paragraphs
+8. The page makes 1 query against comments, and the number of queries against users is the same for 1 comment as for 10 comments by different authors
+
+#### Implementation Notes
+
+In `app/controllers/events_controller.rb` `#show`, add `@comments = @event.comments.oldest_first.includes(:user)`. In `app/views/events/show.html.erb`, add `<%= render "events/comments" %>` right after `<%= render "events/rsvp_card" %>`, inside `aside#event-facts`. Placement is still Outstanding question 1: confirm it with Ana before merging, and move the render line if the answer differs. New partial `app/views/events/_comments.html.erb`: `<section class="section comments" id="comments">`, then `<h2>Comments (<%= @comments.size %>)</h2>`. Use `.size`, not `.count`, so no extra query runs. Then `<ol class="comments__list" id="comments-list">` with `render partial: "comments/comment", collection: @comments`, or `<p class="muted small">No comments yet. Ask a question.</p>` when there are none. New partial `app/views/comments/_comment.html.erb`: `<li id="<%= dom_id(comment) %>" class="comment">` containing `comment.user.name.presence || "Someone"`, `<time datetime="<%= comment.created_at.iso8601 %>"><%= comment_time(comment) %></time>` and `simple_format(h(comment.body))`. The explicit `h` is required, and you must never use `raw` or `html_safe` on the body. In `app/helpers/application_helper.rb`, add `comment_time(comment)` returning `comment.created_at.strftime("%-d %B %Y · %H:%M")`, to match `event_time`. In `app/assets/stylesheets/application.css`, add `.comments`, `.comments__list` and `.comment` next to `.attendees` and `.people`. Put request specs in `spec/requests/events_spec.rb`. Scenarios go in `features/pd-3-comments-on-events/t3.feature`. Reuse the query-counting steps from `features/pd-1-rsvps-with-a-waitlist/t5.feature` ('When I visit ... while counting queries', 'N query ran against <table>').
 
 *Touches: comments, users*
 
-### T3. Post a comment on an event
+### T4. Post a comment on an event
 
-I want to post a question or a link on an event page, so that the organizer and other attendees can answer it where the next person will see it.
+I want to post a comment on an event page, so that I can ask the organizer and other attendees a question or share a link where the answer stays visible
 
-Let signed-in people post comments.
-
-Routes: add `resources :comments, only: %i[ create ]` inside `resources :events` in `config/routes.rb`. T5 adds `:destroy` later.
-
-New `app/controllers/comments_controller.rb`:
-- Keeps the default `require_authentication`, so guests are sent to sign in.
-- `before_action :set_event` with `Event.find(params[:event_id])`.
-- `create` builds `@event.comments.build(params.expect(comment: [ :body ]).merge(user: Current.user))`. The author always comes from the session, never from params.
-- On success, it redirects to `event_path(@event, anchor: "comments")` with the notice "Comment posted."
-- On a validation failure, it redirects to the same place with `alert: comment.errors.full_messages.to_sentence`.
-
-In `_comments.html.erb`, signed-in users see a `form_with model: [ @event, Comment.new ]` below the list. The form has a `text_area :body, required: true, maxlength: 1000` and a "Post comment" submit button with `data: { turbo_submits_with: "Posting…" }`. Guests see `link_to "Sign in to comment", new_session_path, class: "button"` instead, using `authenticated?` the same way `_rsvp_card.html.erb` does.
-
-Comments can be posted before and after the event starts. There is no `rsvps_open?` check.
+Signed-in users see a comment form in the Comments section. Submitting it sends `POST /events/:event_id/comments`, which creates a comment written by the current user on that event. The request then redirects back to the event's Comments section with the notice 'Comment posted.' If validation fails, it redirects back with the error as an alert and creates nothing. Signed-out visitors see a 'Sign in to comment' link instead of the form. If they post anyway, they are redirected to sign-in. The author and the event always come from the session and the URL, never from form params.
 
 #### Acceptance Criteria
 
-1. A signed-in person posts a question and sees it at the bottom of the comments list with their name and the posting time
-2. After posting, the person is taken back to the comments section of the event page and sees "Comment posted."
-3. A guest sees a "Sign in to comment" link and no comment form
-4. A guest who sends a comment POST directly is redirected to sign in and no comment is created
-5. A forged user_id in the submitted params is ignored and the comment belongs to the signed-in person
-6. Submitting a blank or whitespace-only body creates no comment and shows an error alert
-7. Submitting a body longer than 1000 characters creates no comment and shows an error alert
-8. A person can comment on an event that has already started
-9. The comment text area limits input to 1000 characters in the browser
+1. A signed-in user who submits 'Is there parking nearby?' is taken back to the event's comments section and sees 'Comment posted.' and the comment with their name
+2. A signed-in user sees the comment form, and the textarea is required and has maxlength 1000
+3. A signed-out visitor sees a 'Sign in to comment' link and no comment form, and following the link opens the sign-in page
+4. A signed-out POST to the event's comments is redirected to the sign-in page, and no comment is created
+5. Posting a blank or whitespace-only body creates no comment and shows the alert "Body can't be blank"
+6. Posting a 1,001-character body creates no comment and shows the alert 'Body is too long (maximum is 1000 characters)'
+7. Posting with extra user_id, event_id and created_at params creates a comment owned by the signed-in user on the event from the URL, with its own timestamp
+8. Posting to an event that does not exist returns 404
 
 #### Implementation Notes
 
-Files to add:
-- `app/controllers/comments_controller.rb`, modelled on `app/controllers/rsvps_controller.rb`
-- `spec/requests/comments_spec.rb`, in the style of `spec/requests/rsvps_spec.rb`, using `spec/support/authentication_helpers.rb`
-- `features/pd-3-comments-on-events/t3.feature`, tagged `@pd-3-t3`
-
-Files to edit:
-- `config/routes.rb`
-- `app/views/events/_comments.html.erb`
-
-The form posts to `event_comments_path(@event)`.
-
-A body with many line breaks can pass the browser's `maxlength` but fail the model check. Browsers count a line break as 1 character but submit it as `\r\n`, which is 2. The model validation catches this with a readable alert (Outstanding questions 3 and 10).
-
-Rate limiting comes in T4.
+In `config/routes.rb`, add `resources :comments, only: %i[ create ]` inside `resources :events`. T5 adds `:destroy`. New file `app/controllers/comments_controller.rb`, following `RsvpsController`: it inherits `require_authentication` and has no `allow_unauthenticated_access`. Add `before_action :set_event` with `@event = Event.find(params[:event_id])`. `create` does `@comment = @event.comments.new(comment_params.merge(user: Current.user))`. On save, it runs `redirect_to event_path(@event, anchor: "comments"), notice: "Comment posted."`. Otherwise it runs the same redirect with `alert: @comment.errors.full_messages.to_sentence`. `comment_params` is `params.expect(comment: [ :body ])`. In `app/views/events/_comments.html.erb`, when `authenticated?`, add `form_with model: [ @event, Comment.new ], id: "new-comment"` with `text_area :body, required: true, maxlength: Comment::MAX_LENGTH` and a submit button using `data: { turbo_submits_with: "Posting…" }`. Use `Comment.new`, not `@event.comments.build`, which would add an unsaved row to `@comments`. Otherwise, show `link_to "Sign in to comment", new_session_path, class: "button"`. Leave `rate_limit` out: Outstanding question 9 is unresolved, and production has no cache store. Put request specs in `spec/requests/comments_spec.rb`, mirroring the RSVP spec 'ignores user_id and status params'. Scenarios go in `features/pd-3-comments-on-events/t4.feature`.
 
 *Touches: comments*
 
-### T4. Limit how fast one person can post comments
+### T5. Let authors delete their own comments
 
-I want the app to stop one account from flooding an event with comments, so that the conversation stays readable.
+I want to delete a comment I posted, so that I can remove a question that was answered or a mistake I made
 
-Add the Rails 8 built-in rate limiter to `CommentsController#create`: `rate_limit to: 10, within: 1.minute, only: :create, with: -> { redirect_to event_path(@event, anchor: "comments"), alert: "You're commenting too fast. Try again in a minute." }`. Once a person goes over the limit, their further posts in that minute are rejected, and no comment is saved. The limiter stores its counters in `Rails.cache`.
-
-#### Acceptance Criteria
-
-1. A signed-in person can post 10 comments within one minute
-2. The 11th comment within one minute is not saved, and the person sees "You're commenting too fast. Try again in a minute." on the event page
-3. After the minute has passed, the same person can post again
-
-#### Implementation Notes
-
-Edit `app/controllers/comments_controller.rb`. `set_event` must run before the rate limiter's `with:` block, so declare `before_action :set_event` before `rate_limit`.
-
-Tests need a real cache store. Use `ActiveSupport::Cache::MemoryStore` in the spec, and clear it between examples. Use `travel` to move past the minute.
-
-Add a request spec to `spec/requests/comments_spec.rb` and scenarios to `features/pd-3-comments-on-events/t4.feature`, tagged `@pd-3-t4`.
-
-Check that production's `config.cache_store` is shared across Puma workers and hosts. Otherwise the limit applies per process only (Outstanding question 8).
-
-*Touches: comments*
-
-### T5. Delete your own comment
-
-I want to delete a comment I posted, so that I can remove a question that is no longer needed or a link I shared by mistake.
-
-Let authors delete their own comments.
-
-Model: add `Comment#deletable_by?(user)`. In this ticket it returns true when `user.present? && user_id == user.id`. T6 extends it for organizers.
-
-Routes: extend to `resources :comments, only: %i[ create destroy ]`.
-
-`CommentsController#destroy`:
-- Finds the comment with `@event.comments.find(params[:id])`, so an id belonging to another event returns 404.
-- If `comment.deletable_by?(Current.user)`, it calls `comment.destroy` (a hard delete).
-- It then logs `Rails.logger.info("Comment deleted: comment_id=... event_id=... by_user_id=... by_organizer=...")` and redirects to `event_path(@event, anchor: "comments")` with the notice "Comment deleted."
-- Otherwise it redirects to the same place with the alert "You can't delete this comment." and deletes nothing.
-
-In `_comments.html.erb`, show a Delete button only on comments where `comment.deletable_by?(Current.user)`: `button_to "Delete", event_comment_path(@event, comment), method: :delete, class: "button button--ghost", data: { turbo_confirm: "Delete this comment?", turbo_submits_with: "Deleting…" }`.
+Add `Comment#deletable_by?(user)`, which is true only for the comment's author for now, and add `DELETE /events/:event_id/comments/:id`. The author sees a Delete button on their own comments, with a confirmation prompt. Confirming hard-deletes the comment and redirects back with 'Comment deleted.' Authorization runs in the controller, whether or not the button is shown. Anyone else who sends the request gets 'You can't delete this comment.' and the comment stays. The comment lookup is scoped to the event in the URL, so a comment id from another event returns 404. Each deletion is logged.
 
 #### Acceptance Criteria
 
-1. The author of a comment sees a Delete button on their own comment
-2. After confirming "Delete this comment?", the author's comment disappears from the list and they see "Comment deleted."
-3. A signed-in person sees no Delete button on comments written by others
-4. A signed-in person who sends a delete request for someone else's comment is shown "You can't delete this comment." and the comment remains
-5. A guest who sends a delete request is redirected to sign in and the comment remains
-6. A delete request that uses a comment id from a different event returns not found and deletes nothing
-7. Deleting a comment writes a "Comment deleted:" log line with the comment, event and user ids
-8. The number of SQL queries for the event page still does not grow with the number of comments when Delete buttons are shown
+1. An author clicks Delete on their own comment, confirms 'Delete this comment?', sees 'Comment deleted.', and the comment is gone
+2. A signed-in user sees no Delete button on comments written by other people
+3. A signed-in user who is neither author nor organizer and sends DELETE for someone else's comment gets 'You can't delete this comment.', and the comment remains
+4. A signed-out DELETE is redirected to the sign-in page, and the comment remains
+5. Sending DELETE for a comment id through a different event's URL returns 404, and the comment remains
+6. Deleting a comment writes the log line 'Comment deleted: comment_id=<id> event_id=<event_id> author_id=<author_id> deleted_by=<current user id>'
+7. Showing Delete buttons adds no queries against events: the page still makes 1 query against comments, and the number of queries against events is the same for 1 comment as for 10
 
 #### Implementation Notes
 
-Files to edit:
-- `app/models/comment.rb`
-- `app/controllers/comments_controller.rb`
-- `config/routes.rb`
-- `app/views/events/_comments.html.erb`
-- `app/assets/stylesheets/application.css`, for the delete button placement
-- `spec/models/comment_spec.rb`, for `deletable_by?`: true for the author, false for another user, false for nil
-- `spec/requests/comments_spec.rb`
-- `spec/requests/events_spec.rb`
-
-Add scenarios in `features/pd-3-comments-on-events/t5.feature`, tagged `@pd-3-t5`. The confirm dialog needs a JavaScript-capable driver, or scenarios that accept the confirm.
-
-In this ticket, `by_organizer` in the log line is always `event.organized_by?(Current.user)`.
-
-Never rely on the button's visibility alone. The server-side check is the rule.
+In `app/models/comment.rb`, add `def deletable_by?(user) = user.present? && user_id == user.id`. T6 extends it to organizers. In `config/routes.rb`, change comments to `only: %i[ create destroy ]`. `CommentsController#destroy`: `comment = @event.comments.find(params[:id])`. If `comment.deletable_by?(Current.user)` is false, return `redirect_to event_path(@event), alert: "You can't delete this comment."`, which mirrors `EventsController#require_organizer`. Otherwise run `comment.destroy!`, then `Rails.logger.info("Comment deleted: comment_id=#{comment.id} event_id=#{comment.event_id} author_id=#{comment.user_id} deleted_by=#{Current.user.id}")`, then `redirect_to event_path(@event, anchor: "comments"), notice: "Comment deleted."`. In `app/views/comments/_comment.html.erb`, add `button_to "Delete", event_comment_path(comment.event_id, comment), method: :delete, class: "button button--ghost", form: { data: { turbo_confirm: "Delete this comment?" } }` when `comment.deletable_by?(Current.user)`. Pass `comment.event_id`, not `comment.event`, to avoid loading the event per comment. Put specs in `spec/models/comment_spec.rb` (author: true; other user: false; nil: false) and `spec/requests/comments_spec.rb`. Scenarios go in `features/pd-3-comments-on-events/t5.feature`.
 
 *Touches: comments*
 
 ### T6. Let organizers delete any comment on their event
 
-As an event organizer, I want to delete any comment on my event, so that I can remove spam or misleading information.
+I want to delete any comment on an event I organize, so that I can remove spam or off-topic posts from my event page
 
-Extend `Comment#deletable_by?(user)` so it also returns true when `event.organized_by?(user)`. The full rule becomes `user.present? && (user_id == user.id || event.organized_by?(user))`. Because the controller and the view both use this one predicate, the organizer gets the Delete button and the server permits the delete. The log line records `by_organizer=true` when the organizer deletes someone else's comment. Organizers of other events get no extra rights.
+Extend `Comment#deletable_by?` so the event's organizer can also delete any comment on that event, using the existing `Event#organized_by?`. Organizers see a Delete button on every comment on their own events. Organizers of other events get no extra rights. The organizer check must use the event that is already loaded on the page, so rendering the buttons runs no query per comment.
 
 #### Acceptance Criteria
 
-1. The organizer sees a Delete button on every comment on their event, including comments by other people
-2. The organizer deletes another person's comment after confirming, and it disappears from the list with "Comment deleted."
-3. An organizer of one event cannot delete a comment on another event, even by putting that comment's id in their own event's URL, which returns not found
-4. An organizer of another event sees no Delete button on this event's comments, and a direct delete request is refused with "You can't delete this comment."
-5. A non-organizer still sees Delete buttons only on their own comments
-6. When the organizer deletes someone else's comment, the "Comment deleted:" log line includes by_organizer=true
+1. An organizer clicks Delete on another person's comment on their event, confirms, sees 'Comment deleted.', and the comment is gone
+2. An organizer sees a Delete button on every comment on their event
+3. The organizer of a different event sees no Delete button on comments by others, and sending DELETE gets 'You can't delete this comment.' while the comment remains
+4. An organizer deleting someone else's comment writes a log line where deleted_by is the organizer's id and author_id is the comment author's id
+5. Viewed by the organizer, an event with 10 comments makes 1 query against comments, and the number of queries against events and users is the same as with 1 comment
 
 #### Implementation Notes
 
-Edit `app/models/comment.rb`. `Event#organized_by?` is the app's only organizer check, so reuse it rather than comparing `organizer_id` directly.
-
-`comment.event` must reuse the loaded `@event` through `inverse_of: :event`, added in T2, so the query count stays flat.
-
-Add model specs for organizer true and other user false, request specs in `spec/requests/comments_spec.rb` for the organizer and the cross-event 404, and scenarios in `features/pd-3-comments-on-events/t6.feature`, tagged `@pd-3-t6`.
-
-An optional "Organizer" badge is out of scope (Outstanding question 7).
+In `app/models/comment.rb`: `def deletable_by?(user) = user.present? && (user_id == user.id || event.organized_by?(user))`. `@event.comments.oldest_first` is an association relation, and with `inverse_of: :event` (added in T2) each comment's `event` points to the already-loaded `@event`. If query counting shows a query per comment, change `EventsController#show` to `includes(:user, :event)`. Model spec cases: the event's organizer returns true, and the organizer of a different event returns false. Put request specs in `spec/requests/comments_spec.rb` and `spec/requests/events_spec.rb`. Scenarios go in `features/pd-3-comments-on-events/t6.feature`. Optional: an 'Organizer' badge on the organizer's own comments is Outstanding question 11 and not part of this ticket.
 
 *Touches: comments, events*
 
 # Risks
 
-- **Stored XSS or phishing markup in comment bodies.** Mitigation: render with `simple_format(h(comment.body))` so all HTML is escaped, and never use `raw` or `html_safe`. A request or system test posts `<script>` and `<a href=...>` bodies and asserts they appear as text.
-- **Someone deletes another person's comment through a crafted request.** Mitigation: find the comment through `@event.comments.find`, check `Comment#deletable_by?` on the server, never rely on the button's visibility alone, and cover the rule with request specs for author, organizer, another signed-in user and a guest.
-- **Spam or flooding by signed-in accounts.** Mitigation: `rate_limit` on `create`, a 2000-character limit enforced in the model and by a database check constraint, and organizers can delete any comment on their event. A moderation queue is out of scope.
-- **Deleting a user or event fails because of the new foreign keys.** Mitigation: `Event has_many :comments, dependent: :delete_all` and `User has_many :comments, dependent: :destroy`, with model specs that delete a user and an event that have comments.
-- **Blank author names for legacy users (`users.name` defaults to `""`).** Mitigation: a fallback label in the view, covered by a test.
-- **Page layout: long URLs or long comments break the layout.** Mitigation: CSS `overflow-wrap: anywhere` on comment bodies, placement in a full-width section, and QA with a 2000-character body and a long URL.
-- **The page slows down on events with many comments.** Mitigation: the composite index and `includes(:user)`. Pagination is not planned. See Performance and Outstanding questions.
-- **A guest submits a comment and loses it.** A guest POST redirects to sign-in, and `request_authentication` stores the POST URL as `return_to`, which has no GET route. This is the same existing behaviour as RSVPs. Mitigation: guests never see the form. They see a "Sign in to comment" link.
+- **Stored XSS through comment bodies.** Comments are user input shown to every visitor, including guests.
+  - *Mitigation:* render with `simple_format(h(comment.body))`, and never use `raw` or `html_safe` on the body.
+  - *Mitigation:* a request spec posts `<script>` and `<a href="javascript:...">` and asserts the response shows them escaped.
+  - *Mitigation:* Brakeman already runs (`gem "brakeman"`).
+- **Deleting someone else's comment, or a comment on another event.**
+  - *Mitigation:* `@event.comments.find` limits the lookup to the event in the URL.
+  - *Mitigation:* `Comment#deletable_by?` allows only the author or `event.organized_by?`.
+  - *Mitigation:* request specs cover a user who is neither author nor organizer, and a comment id from another event.
+- **Foreign key failures when a user or event is deleted.** `User` destroys `organized_events`, and the new `comments.user_id` and `comments.event_id` foreign keys would block that.
+  - *Mitigation:* `dependent: :delete_all` on both `Event#comments` and `User#comments`.
+  - *Mitigation:* model specs cover destroying a user who wrote comments and organizes events that have comments.
+- **Spam or flooding.** Anyone who can sign up can post, and there is no moderation queue (out of scope).
+  - *Mitigation:* organizers can delete any comment on their event.
+  - *Mitigation:* an optional `rate_limit` on `create`, once a production cache store exists.
+  - *Mitigation:* a body length cap.
+- **Blank author names on legacy users.** The `users.name` column defaults to `""`.
+  - *Mitigation:* the partial falls back to `Someone`, and a spec covers it.
+- **Lost input when validation fails.** The controller redirects instead of re-rendering the page.
+  - *Mitigation:* `required` and `maxlength` on the textarea stop the two failure cases (blank and too long) in the browser.
+  - *Accepted:* in the rare case of a server-side failure, the typed text is lost. This is a deliberate simplification that avoids duplicating the `EventsController#show` setup.
+- **Public exposure of names.** Today, attendee names are shown only to the organizer (`@rsvps` is organizer-only). Comment author names would be visible to anonymous visitors.
+  - *Mitigation:* needs a product decision before release (see Outstanding questions).
+- **Unbounded list on popular events.**
+  - *Mitigation:* acceptable at current scale. Revisit with pagination if an event goes beyond a few hundred comments (see Performance).
 
 ## Performance
 
-- **Event page (`EventsController#show`)** adds 2 queries: `SELECT comments WHERE event_id = ? ORDER BY created_at, id` and `SELECT users WHERE id IN (...)` through `includes(:user)`. The heading count uses `@comments.size` on the loaded records, so it adds no `COUNT` query.
-- **N+1 risks:**
-  - `comment.user.name` is preloaded.
-  - `comment.deletable_by?(Current.user)` calls `event.organized_by?`. `comment.event` would trigger one query per comment unless the association points back to the already-loaded event. Either declare `has_many :comments, inverse_of: :event`, which Rails usually infers for this simple association, or pass `@event` in. A test asserts the query count stays flat as the number of comments grows.
-- **Indexes:** the `(event_id, created_at)` index serves the filtered, ordered list. The `user_id` index serves user deletion.
-- **Size:** this is a new table and needs no backfill, so there are no batch sizes to set. A busy event could build up hundreds of comments. All of them render on the page because pagination is not planned. That is acceptable at current scale, but it is listed as an Outstanding question with a suggested threshold (for example, show the latest 200 and link to more).
-- **Writes:** one `INSERT` or `DELETE` per request, with no locking. `Event#rsvp` uses `lock!`, but comments don't compete for seats, so they don't need it.
-- **Events index page:** no change. Comment counts are not shown there.
+- **Event page query count:** `events#show` runs two new queries, however many comments there are:
+  - `SELECT comments.* FROM comments WHERE event_id = ? ORDER BY created_at, id`
+  - one `SELECT users.* WHERE id IN (...)` from `includes(:user)`
+- **N+1 risks, and how the plan avoids them:**
+  - Author names: `includes(:user)` preloads `comment.user.name`.
+  - The delete button check: `comment.deletable_by?` calls `comment.event.organized_by?`. Done carelessly, this loads the event once per comment. The partial passes `comment.event_id` to the route helper, and `deletable_by?` should use the event that is already loaded. Get this by adding `inverse_of: :event` on `Event has_many :comments` (Rails infers it here), or by preloading with `includes(:user, :event)`. A request spec or Cucumber step should assert the number of queries against `comments` and `users`, in the style of the existing step `1 query ran against rsvps` in `features/pd-1-rsvps-with-a-waitlist/t5.feature`.
+  - The heading count uses `@comments.size` on the loaded relation, not `.count`.
+- **Indexes:**
+  - `[event_id, created_at]` covers both the filter and the sort in the page query.
+  - `user_id` covers `user.comments.delete_all`.
+  - `destroy` looks up `comments.id`, the primary key.
+- **Large tables:** none are affected. `comments` starts empty, and `events` and `users` are not altered.
+- **Backfill:** none, so no batch size applies.
+- **Unbounded rendering:** v1 renders every comment on an event. At the expected volume (tens per event) this is fine. If an event reaches roughly 200 or more comments, add pagination or a `limit` with a `Show older` link. That decision is left for later.
+- **Deletes:** `dependent: :delete_all` issues one `DELETE` per association instead of loading the records.
 
 ## Security
 
-- **Authentication:** reading is public. `EventsController#show` already allows guests, and comments are meant to help the next visitor. Creating and deleting require a session, because `CommentsController` keeps the default `require_authentication`.
-- **Authorization:** `Comment#deletable_by?(user)` allows the author (`user_id == user.id`) or the event's organizer (`event.organized_by?(user)`). The controller enforces this server-side on every `destroy`. The lookup is scoped with `@event.comments.find(params[:id])`, so a comment id from another event returns 404. The author is always `Current.user` and is never read from params. Strong params allow only `body` (`params.expect(comment: [ :body ])`).
-- **Input validation:** the body is stripped and must be present, at most 2000 characters. This is enforced by the model and by the `comments_body_length_check` constraint.
-- **Output encoding:** `simple_format(h(body))` escapes all user HTML. There are no `raw` or `html_safe` calls. If auto-linking is added later, it must only produce `http` and `https` links with `rel="nofollow noopener ugc"`.
-- **CSRF:** the form and delete buttons use `form_with` and `button_to`, which include Rails' authenticity token. The existing `ApplicationController` protection applies.
-- **Data exposure:** only `users.name` and the timestamp are shown next to a comment. Email addresses must never appear. This matches the existing `@pd-1-t4 @ac-6` scenario, which asserts that the event page contains no email addresses, and it is extended to comments. Comments are public, so the UI copy should make clear that anyone can read them.
-- **Abuse:** `rate_limit` on `create`. A deleted comment is hard-deleted, so no audit trail remains beyond the log line.
+- **Authentication:**
+  - `CommentsController` keeps `require_authentication` from `ApplicationController`. Guests who send a `POST` or `DELETE` are redirected to `new_session_path`, and nothing changes.
+  - Reading comments stays public through the existing `allow_unauthenticated_access only: %i[ index show ]` in `EventsController`.
+- **Authorization:**
+  - Only the comment's author (`comment.user_id == Current.user.id`) or the event's organizer (`@event.organized_by?(Current.user)`) can delete a comment. `Comment#deletable_by?` checks this.
+  - The check runs in the controller. Hiding the button in the view is only a convenience.
+  - The lookup is `@event.comments.find(params[:id])`, so a comment cannot be deleted through another event's URL.
+  - Editing is out of scope, so there is no update path to secure.
+- **Mass assignment:**
+  - `params.expect(comment: [ :body ])` permits only `body`.
+  - `user` comes from `Current.user`, and `event` comes from the URL.
+  - A spec posts `user_id`, `event_id` and `created_at` and asserts they are ignored, mirroring the existing RSVP spec `ignores user_id and status params`.
+- **Input validation:**
+  - `body` must be present after `strip` and at most `Comment::MAX_LENGTH` characters long.
+  - The database enforces `NOT NULL`, and optionally a non-blank check constraint.
+- **Output encoding and XSS:** the body is rendered with `simple_format(h(comment.body))`. Links show as plain text in v1. Whether they should be clickable is an Outstanding question. Any auto-linking must allow only `http` and `https` and add `rel="nofollow noopener ugc"`.
+- **CSRF:** Rails' default forgery protection covers `form_with` and `button_to`. No API endpoint is added.
+- **Data exposure:**
+  - The comment author's `name` and the posting time become visible to anyone, including guests.
+  - `email_address` is never rendered.
+  - This is a change from today, where attendee names are organizer-only. It needs sign-off (see Outstanding questions).
+- **Abuse:** there is no moderation queue, by design. Organizer deletion and an optional rate limit are the controls.
 
-Risk Level: MEDIUM. This is the first feature that shows free text from one user to other users, including guests, so escaping and the delete permission check must be right, although the data involved isn't sensitive.
+Risk Level: MEDIUM. The feature adds public, user-written content that anonymous visitors can see, which carries XSS, spam and name-exposure risk, although the authorization rule itself (author or organizer) is simple.
 
 ## Monitoring
 
-- **Errors:** watch for new exceptions from `CommentsController`, especially `ActiveRecord::RecordNotFound` spikes on `destroy`, which could mean id probing, and `ActiveRecord::StatementInvalid` from the check constraint, which would mean the model validation and the constraint disagree. Watch for `ActiveRecord::InvalidForeignKey` when users or events are deleted.
-- **Logs:** search for the `Comment deleted:` log line to see how often organizers delete others' comments, a signal of spam or abuse. Also track how often requests are rate-limited on `POST /events/:id/comments`.
-- **Performance:** response time of `EventsController#show` before and after release, and the number of SQL queries per request in logs. It should rise by exactly 2.
-- **Usage metrics (manual queries, since there is no analytics tool in the repo):** `Comment.where(created_at: 1.week.ago..).count` and the number of distinct events and authors with comments, to judge whether questions are moving out of chat as intended.
-- **Jobs:** none to monitor.
+The repository has no APM or error tracker configured, so these checks rely on Rails logs and whatever log aggregation production uses. Confirm the tool with DevOps.
+
+- **Errors:**
+  - Any 5xx from `CommentsController#create` or `#destroy`, or from `EventsController#show` after release. A regression in `show` would break every event page.
+  - `ActiveRecord::InvalidForeignKey` when deleting users or events. This would mean a `dependent:` option is missing.
+- **Request outcomes:**
+  - How often `POST /events/:event_id/comments` ends in a redirect with an alert (validation failures).
+  - `DELETE` requests that end in `You can't delete this comment.` A spike suggests someone is probing.
+  - `429` responses, if `rate_limit` is enabled.
+- **Logs:** the `Comment deleted: comment_id=... event_id=... author_id=... deleted_by=...` lines. Watch for organizers deleting many comments at once, which points to spam.
+- **Metrics** (ad hoc SQL or console queries for the first few weeks):
+  - comments per day
+  - comments per event
+  - the number of distinct commenters
+  - the share of comments deleted by organizers rather than by their authors
+- **Performance:** `events#show` response time before and after release. Expect little change, since only two indexed queries are added.
+- **Jobs:** none. This feature adds no background work.
 
 ## Outstanding questions
 
-1. **Placement:** "Below the RSVP card" could mean inside the narrow sidebar (`aside#event-facts`, after the Edit link and attendees list) or as a full-width section under the page's two columns. This plan assumes full width. Design needs to confirm before the UI phase ships.
-2. **Commenting after the event:** can people comment on events that have already started or ended, when `rsvps_open?` is false? This plan assumes yes.
-3. **Maximum length:** is 2000 characters right? The number goes into both the model validation and the database check constraint, so it must be settled before the migration ships.
-4. **Links:** should URLs in a comment become clickable, or stay plain text? Clickable links need a small helper or a new gem, plus a review of the link attributes.
-5. **Deleted users:** when a user account is deleted, should their comments be deleted too (the plan's assumption, matching RSVPs) or kept with an anonymous author? Keeping them needs `user_id` to be nullable.
-6. **Timestamp format and time zone:** absolute ("30 September 2026 · 14:12") or relative ("5 minutes ago")? Which time zone is `config.time_zone` set to in production? This wasn't checked.
-7. **Organizer label:** should the organizer's own comments be marked, for example with an "Organizer" badge, so answers stand out?
-8. **Rate limit:** is 10 comments per minute per person right, and is production's `Rails.cache` store shared across processes so the limit applies across the whole app?
-9. **Volume:** is showing every comment on the page acceptable, or should the list be capped or paginated above some number?
-10. **Failed submissions:** should a failed comment (blank or too long) show the form again with the typed text kept, or is a redirect with an alert acceptable given the browser's `required` and `maxlength` checks?
+1. **Placement:** "Below the RSVP card" puts comments inside the narrow sidebar `aside.event__facts`, above the organizer's **Edit event** link and the attendee lists. Should comments go there, in the main column below **About this event**, or full-width under `.event__layout`? This must be answered before the UI ticket.
+2. **Links:** the brief says people share links. Should URLs be clickable, or is plain text acceptable for v1? Clickable links need `rails_autolink` or a small helper, with `rel="nofollow noopener ugc"`.
+3. **Who may comment:** any signed-in user, or only people with an RSVP (going or waitlisted) plus the organizer?
+4. **Past events:** can people comment after `starts_at`, when RSVPs are no longer possible? Should comments stay visible on past events?
+5. **Maximum length:** is 2,000 characters acceptable?
+6. **Public names:** is it acceptable to show commenter names to signed-out visitors? Today attendee names are shown only to the organizer.
+7. **Timestamp format:** absolute (`30 September 2026 · 15:19`, matching `event_time`) or relative (`5 minutes ago`)? And in which time zone? None of the files reviewed sets one explicitly.
+8. **Hard delete:** is permanent deletion fine, or do organizers or the team need a record of deleted comments (soft delete with `deleted_at`)? A moderation queue is out of scope, but an audit trail may still be wanted.
+9. **Rate limiting:** should `create` be rate limited in v1? If so, which production cache store should be used? `config.cache_store` is currently unset in `config/environments/production.rb`.
+10. **Staged launch:** is it acceptable for the feature to go live on deploy, given there is no feature flag system?
+11. **Organizer as author:** should the organizer's comments be marked, for example with an `Organizer` badge, so their answers stand out?
 
 # Testing
 
+Model specs use RSpec (`spec/models`) and request specs live in `spec/requests`. End-to-end scenarios are Cucumber features in `features/pd-3-comments-on-events/`, with steps in `features/step_definitions/`, following the `pd-1` layout.
+
 ### Model: `spec/models/comment_spec.rb`
-- Valid with an event, a user and a body. Invalid without a body, with only whitespace, or longer than 2000 characters.
-- `normalizes` strips surrounding whitespace.
-- `chronological` orders by `created_at` then `id`, including two comments with the same timestamp.
-- `deletable_by?` is true for the author, true for the event's organizer, false for another user and false for `nil`.
-- The database check constraint rejects an empty body when validations are bypassed (`insert_all` or `update_column`).
+- Valid with an event, a user and a body.
+- Invalid with a blank or whitespace-only body. `normalizes` strips the body first.
+- Invalid when the body is longer than `Comment::MAX_LENGTH`. Valid at exactly the limit.
+- `oldest_first` orders by `created_at`, then by `id` when timestamps are equal.
+- `deletable_by?`:
+  - true for the author
+  - true for the event's organizer
+  - false for another signed-in user
+  - false for `nil`
+  - false for the organizer of a different event
 
-### Models: `spec/models/event_spec.rb` and `spec/models/user_spec.rb`
-- Deleting an event with comments removes its comments.
-- Deleting a user with comments removes their comments and doesn't raise a foreign key error.
+### Model: `spec/models/event_spec.rb` and `spec/models/user_spec.rb`
+- Destroying an event deletes its comments.
+- Destroying a user deletes the comments they wrote on other people's events.
+- Destroying a user who organizes an event with other people's comments succeeds without a foreign key error.
 
-### Factory: `spec/factories/comments.rb`
-- A `comment` factory associated with `event` and `user`.
+### Database: `spec/db/comments_table_spec.rb` (following `spec/db/rsvps_table_spec.rb`)
+- `event_id`, `user_id` and `body` reject `NULL`.
+- The foreign keys reject unknown events and users.
+- The `[event_id, created_at]` index exists.
+- If adopted, the check constraint rejects a blank body.
 
 ### Request: `spec/requests/comments_spec.rb`
-These follow the style of `spec/requests/rsvps_spec.rb`.
-- **Guest:** POST and DELETE redirect to `new_session_path` and change nothing.
-- **Signed in:** POST creates a comment owned by `Current.user` and redirects to `event_path(event, anchor: "comments")` with the notice "Comment posted." A forged `user_id` in the params is ignored.
-- **Validation:** a blank body creates nothing and redirects with an alert.
-- **Author delete:** the author can delete their own comment.
-- **Organizer delete:** the organizer can delete someone else's comment on their event.
-- **Blocked deletes:**
-  - Another signed-in user can't delete someone else's comment. They are redirected with an alert and the comment count is unchanged.
-  - An organizer of event A can't delete a comment on event B, even by putting B's comment id in A's URL (404).
-- **Rate limit:** the 11th POST within a minute is rejected.
+- **Guest:**
+  - `POST` redirects to `new_session_path` and creates nothing.
+  - `DELETE` redirects to sign-in and deletes nothing.
+- **Signed in:**
+  - `POST` with a body creates a comment owned by `Current.user` and redirects to `event_path(event, anchor: "comments")` with `Comment posted.`
+  - `POST` with a blank body creates nothing and sets an alert.
+  - `POST` ignores the `user_id`, `event_id` and `created_at` params.
+  - `POST` to an unknown event returns 404.
+- **Delete permissions:**
+  - The author can delete their own comment.
+  - The organizer can delete anyone's comment on their event.
+  - Another user gets `You can't delete this comment.` and the comment remains.
+  - The organizer of a different event cannot delete it.
+  - A comment id that belongs to another event returns 404.
+- **XSS:** posting `<script>alert(1)</script>` shows escaped text on `GET event_path`.
 
 ### Request: `spec/requests/events_spec.rb`
-- `GET /events/:id` lists comments oldest first, with author names and times, for a guest, a signed-in user and the organizer.
-- The page shows the form only when signed in, and the "Sign in to comment" link otherwise.
-- Delete buttons appear only on comments the viewer may delete.
-- Escaping: a body containing `<script>` or `<a href=...>` is rendered as escaped text.
-- **Legacy data:** a comment by a user whose `name` is `""` shows the fallback label.
-- No email address appears on the page when comments are present.
-- The query count for `show` doesn't grow with the number of comments (no N+1).
+- A guest sees the comments and a `Sign in to comment` link, and no form.
+- A signed-in user sees the form.
+- The delete button appears only for the author and the organizer.
+- **Legacy data:** a comment by a user whose `name` is `""` (set with `update_column`) shows the author as `Someone`.
 
-### System and acceptance: Cucumber, in `features/pd-N-comments-on-events/`
-The repo uses Cucumber features instead of `spec/system`.
-- A signed-in person posts a question and sees it at the bottom of the list with their name and time.
-- A guest sees existing comments and a "Sign in to comment" link, but no form.
+### Cucumber: `features/pd-3-comments-on-events/*.feature`
+- A signed-in person posts a question and sees it with their name and the time.
+- Comments are listed oldest first.
 - An author deletes their own comment after confirming.
-- The organizer deletes another person's comment.
-- A non-organizer sees no delete button on others' comments.
-- An event with no comments shows the empty state.
-- The comments section appears below the RSVP card.
-- A long URL doesn't overflow the layout (manual QA check).
+- An organizer deletes someone else's comment.
+- A user who is not the organizer sees no delete button on other people's comments.
+- A guest can read comments but is sent to sign-in to comment.
+- The event page loads comments and authors in a fixed number of queries, whatever the comment count: one against `comments` and one against `users`.
+
+### Static checks
+`bin/brakeman` and `bin/rubocop` pass.
 
 # Sign-off
 
 | Role | Decision | By | When |
 | --- | --- | --- | --- |
-| Review | approved | Ivan Blažević <ivan.blazevic@rubycode.co> | 30 Sep 2026 12:18 |
+| Review | approved | Ivan Blažević <ivan.blazevic@rubycode.co> | 30 Sep 2026 13:25 |
