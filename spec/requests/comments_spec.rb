@@ -109,6 +109,20 @@ RSpec.describe "Comments", type: :request do
       )
     end
 
+    it "removes a deleted comment's reactions and still renders the event page" do
+      create(:comment_reaction, comment: comment)
+      create(:comment_reaction, :dislike, comment: comment)
+      kept = create(:comment_reaction, comment: create(:comment, event: event))
+      sign_in organizer
+
+      expect { delete event_comment_path(event, comment) }.to change(CommentReaction, :count).by(-2)
+      expect(CommentReaction.all).to eq([ kept ])
+
+      follow_redirect!
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("Comments (1)", "Like (1)")
+    end
+
     it "refuses the organizer of a different event and keeps the comment" do
       sign_in create(:event).organizer
 

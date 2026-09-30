@@ -2,8 +2,11 @@
   <h2>Comments (<%= @comments.size %>)</h2>
   <% if @comments.any? %>
     <ol class="comments__list" id="comments-list">
-      <%= render partial: "comments/comment", collection: @comments %>
+      <%= render partial: "comments/comment", collection: @comments, locals: { reaction_counts: @reaction_counts } %>
     </ol>
+    <% unless authenticated? %>
+      <%= link_to "Sign in to react", new_session_path, class: "small comments__sign-in-to-react" %>
+    <% end %>
   <% else %>
     <p class="muted small">No comments yet. Ask a question.</p>
   <% end %>

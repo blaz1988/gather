@@ -125,6 +125,8 @@ main.container { padding-top: 32px; padding-bottom: 64px; }
 .comment__meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 4px; }
 .comment__body p { margin: 0 0 6px; overflow-wrap: anywhere; }
 .comments__new { margin-top: 16px; }
+.comment__reactions { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 6px; }
+.comments__sign-in-to-react { display: inline-block; margin-top: 8px; }
 
 /* Forms */
 .auth { max-width: 420px; margin: 40px auto; }

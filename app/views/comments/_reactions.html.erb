@@ -1,0 +1,5 @@
+<%# locals: (comment:, counts:, current_kind: nil) -%>
+<div id="<%= dom_id(comment, :reactions) %>" class="comment__reactions small muted">
+  <span class="comment__reaction">Like (<%= counts.fetch("like") %>)</span>
+  <span class="comment__reaction">Dislike (<%= counts.fetch("dislike") %>)</span>
+</div>
