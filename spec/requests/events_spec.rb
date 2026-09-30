@@ -278,6 +278,61 @@ RSpec.describe "Events", type: :request do
       expect(events_with_ten).to eq(events_with_one)
       expect(users_with_ten).to eq(users_with_one)
     end
+
+    describe "reactions" do
+      def reactions_of(comment)
+        section = comments_section
+        section.at_css("##{ActionView::RecordIdentifier.dom_id(comment, :reactions)}.comment__reactions")
+      end
+
+      it "shows Like (0) and Dislike (0) on a comment with no reactions" do
+        comment = create(:comment, event: event)
+        expect(reactions_of(comment).text.squish).to eq("Like (0) Dislike (0)")
+      end
+
+      it "shows each comment its own counts inside its dom_id wrapper" do
+        popular, other = create_list(:comment, 2, event: event)
+        create_list(:comment_reaction, 2, comment: popular)
+        create(:comment_reaction, :dislike, comment: popular)
+        create(:comment_reaction, :dislike, comment: other)
+
+        expect(reactions_of(popular).text.squish).to eq("Like (2) Dislike (1)")
+        expect(reactions_of(other).text.squish).to eq("Like (0) Dislike (1)")
+        expect(reactions_of(popular).ancestors(".comment").first["id"]).to eq(ActionView::RecordIdentifier.dom_id(popular))
+      end
+
+      it "offers guests one Sign in to react link and signed-in people none" do
+        create_list(:comment, 2, event: event)
+        links = comments_section.css("a").select { it.text == "Sign in to react" }
+        expect(links.map { it["href"] }).to eq([ new_session_path ])
+
+        sign_in marko
+        expect(comments_section.text).not_to include("Sign in to react")
+      end
+
+      it "shows no Sign in to react link when there are no comments" do
+        expect(comments_section.text).not_to include("Sign in to react")
+      end
+
+      it "renders the page in the same number of queries with 1 and with 10 reacted comments" do
+        count_queries = lambda do
+          queries = []
+          record = ->(*, payload) { queries << payload[:sql] unless payload[:name] == "SCHEMA" }
+          ActiveSupport::Notifications.subscribed(record, "sql.active_record") { get event_path(event) }
+          queries
+        end
+
+        create(:comment_reaction, comment: create(:comment, event: event))
+        with_one = count_queries.call
+
+        create_list(:comment, 9, event: event).each { create(:comment_reaction, :dislike, comment: it) }
+        with_ten = count_queries.call
+
+        expect(response.body).to include("Comments (10)")
+        expect(with_ten.size).to eq(with_one.size)
+        expect(with_ten.grep(/\bFROM "comment_reactions"/).size).to eq(1)
+      end
+    end
   end
 
   it "asks guests to sign in before creating an event" do

@@ -13,6 +13,7 @@ class EventsController < ApplicationController
     @rsvp = @event.rsvp_for(Current.user)
     @rsvps = @event.rsvps.includes(:user).in_line_order if @event.organized_by?(Current.user)
     @comments = @event.comments.oldest_first.includes(:user).load
+    @reaction_counts = Comment.reaction_counts_for(@comments)
   end
 
   def new
