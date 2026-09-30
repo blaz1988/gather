@@ -10,7 +10,18 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_30_133104) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_30_183400) do
+  create_table "comment_reactions", force: :cascade do |t|
+    t.integer "comment_id", null: false
+    t.integer "user_id", null: false
+    t.string "kind", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["comment_id", "user_id"], name: "index_comment_reactions_on_comment_id_and_user_id", unique: true
+    t.index ["user_id"], name: "index_comment_reactions_on_user_id"
+    t.check_constraint "kind IN ('like', 'dislike')", name: "comment_reactions_kind_check"
+  end
+
   create_table "comments", force: :cascade do |t|
     t.integer "event_id", null: false
     t.integer "user_id", null: false
@@ -144,6 +155,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_133104) do
     t.index ["email_address"], name: "index_users_on_email_address", unique: true
   end
 
+  add_foreign_key "comment_reactions", "comments", on_delete: :cascade
+  add_foreign_key "comment_reactions", "users", on_delete: :cascade
   add_foreign_key "comments", "events"
   add_foreign_key "comments", "users"
   add_foreign_key "events", "users", column: "organizer_id"
