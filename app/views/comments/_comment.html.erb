@@ -4,4 +4,8 @@
     <time class="muted" datetime="<%= comment.created_at.iso8601 %>"><%= comment_time(comment) %></time>
   </p>
   <div class="comment__body"><%= simple_format(h(comment.body)) %></div>
+  <% if comment.deletable_by?(Current.user) %>
+    <%= button_to "Delete", event_comment_path(comment.event_id, comment), method: :delete, class: "button button--ghost",
+          form: { data: { turbo_confirm: "Delete this comment?" } } %>
+  <% end %>
 </li>

@@ -74,4 +74,66 @@ RSpec.describe "Comments", type: :request do
       expect(response).to have_http_status(:not_found)
     end
   end
+
+  describe "DELETE /events/:event_id/comments/:id" do
+    let!(:comment) { create(:comment, event: event, user: marko) }
+
+    it "redirects a guest to sign-in and deletes nothing" do
+      expect { delete event_comment_path(event, comment) }.not_to change(Comment, :count)
+      expect(response).to redirect_to(new_session_path)
+    end
+
+    it "lets the author delete their comment and logs it" do
+      sign_in marko
+      allow(Rails.logger).to receive(:info).and_call_original
+
+      expect { delete event_comment_path(event, comment) }.to change(Comment, :count).by(-1)
+
+      expect(response).to redirect_to(event_path(event, anchor: "comments"))
+      expect(flash[:notice]).to eq("Comment deleted.")
+      expect(Rails.logger).to have_received(:info).with(
+        "Comment deleted: comment_id=#{comment.id} event_id=#{event.id} author_id=#{marko.id} deleted_by=#{marko.id}"
+      )
+    end
+
+    it "refuses another user and keeps the comment" do
+      sign_in create(:user)
+
+      expect { delete event_comment_path(event, comment) }.not_to change(Comment, :count)
+
+      expect(response).to redirect_to(event_path(event))
+      expect(flash[:alert]).to eq("You can't delete this comment.")
+    end
+
+    it "returns 404 for a comment id through another event's URL" do
+      sign_in marko
+      other_event = create(:event)
+
+      expect { delete event_comment_path(other_event, comment) }.not_to change(Comment, :count)
+      expect(response).to have_http_status(:not_found)
+    end
+  end
+
+  describe "Delete button on the event page" do
+    let!(:own) { create(:comment, event: event, user: marko, body: "Mine") }
+    let!(:other) { create(:comment, event: event, body: "Theirs") }
+
+    def delete_forms
+      Nokogiri::HTML(response.body).css("form[action^='#{event_comments_path(event)}/']")
+    end
+
+    it "shows a confirming Delete button only on the signed-in author's comments" do
+      sign_in marko
+      get event_path(event)
+
+      expect(delete_forms.map { it["action"] }).to eq([ event_comment_path(event, own) ])
+      expect(delete_forms.first["data-turbo-confirm"]).to eq("Delete this comment?")
+      expect(delete_forms.first.at_css("button").text).to eq("Delete")
+    end
+
+    it "shows no Delete button to a guest" do
+      get event_path(event)
+      expect(delete_forms).to be_empty
+    end
+  end
 end
