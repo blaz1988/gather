@@ -64,6 +64,10 @@ Cucumber, run 29 Sep 2026 22:43 on commit `1bdb205`: `bundle exec cucumber --tag
 - **T4**: all checks passed
 - **T5**: all checks passed
 
+## Tokens and cost
+
+No token usage recorded.
+
 ## Approvals
 
 | When | Subject | Role | Decision | By | Note |
@@ -95,7 +99,7 @@ Cucumber, run 29 Sep 2026 22:43 on commit `1bdb205`: `bundle exec cucumber --tag
 - 29 Sep 2026 21:43 · ticket.issue_created T5 · Ivan Blažević <ivan.blazevic@rubycode.co>
 - 29 Sep 2026 21:44 · ticket.agent_started T1 · Ivan Blažević <ivan.blazevic@rubycode.co>
 - 29 Sep 2026 21:50 · ticket.pr_opened T1 · cursor-agent
-- 29 Sep 2026 21:53 · ticket.reviewed T1 · Ivan Blazevic <ivan.blazevic@lockthreat.com>
+- 29 Sep 2026 21:53 · ticket.reviewed T1 · Ivan Blažević <ivan.blazevic@rubycode.co>
 - 29 Sep 2026 21:54 · ticket.reviewed T1 · Ivan Blažević <ivan.blazevic@rubycode.co>
 - 29 Sep 2026 22:03 · ticket.reviewed T1 · Ivan Blažević <ivan.blazevic@rubycode.co>
 - 29 Sep 2026 22:03 · ticket.pr_approved T1 · Ivan Blažević <ivan.blazevic@rubycode.co>
@@ -138,6 +142,7 @@ Cucumber, run 29 Sep 2026 22:43 on commit `1bdb205`: `bundle exec cucumber --tag
 - 29 Sep 2026 22:42 · plan.delivered · Ivan Blažević <ivan.blazevic@rubycode.co>
 - 29 Sep 2026 22:43 · evidence.recorded · Ivan Blažević <ivan.blazevic@rubycode.co>
 - 29 Sep 2026 22:43 · report.written · Ivan Blažević <ivan.blazevic@rubycode.co>
+- 30 Sep 2026 16:38 · report.written · Ivan Blažević <ivan.blazevic@rubycode.co>
 
 ## The approved plan
 
