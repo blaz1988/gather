@@ -257,6 +257,27 @@ RSpec.describe "Events", type: :request do
       expect([ comments_with_one, comments_with_ten ]).to eq([ 1, 1 ])
       expect(users_with_ten).to eq(users_with_one)
     end
+
+    it "shows the organizer a Delete button on every comment without a query per comment" do
+      sign_in organizer
+      count_queries = lambda do
+        queries = []
+        record = ->(*, payload) { queries << payload[:sql] unless payload[:name] == "SCHEMA" }
+        ActiveSupport::Notifications.subscribed(record, "sql.active_record") { get event_path(event) }
+        %w[ comments events users ].map { |table| queries.grep(/\bFROM "#{table}"/).size }
+      end
+
+      create(:comment, event: event)
+      comments_with_one, events_with_one, users_with_one = count_queries.call
+
+      create_list(:comment, 9, event: event)
+      comments_with_ten, events_with_ten, users_with_ten = count_queries.call
+
+      expect(Nokogiri::HTML(response.body).css("section#comments .comment button").map(&:text)).to eq([ "Delete" ] * 10)
+      expect([ comments_with_one, comments_with_ten ]).to eq([ 1, 1 ])
+      expect(events_with_ten).to eq(events_with_one)
+      expect(users_with_ten).to eq(users_with_one)
+    end
   end
 
   it "asks guests to sign in before creating an event" do
