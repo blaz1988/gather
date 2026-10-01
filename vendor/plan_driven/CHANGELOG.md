@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
+### Added
+
+- Statistics, computed from the audit trail: how long planning, tickets, development and proof
+  took, each ticket's time split into queued, agent coding, waiting for review, agent fixing
+  feedback and approved but not merged, the agents' share of the work, first-time approvals,
+  and acceptance criteria merged and proven over time. `plan-driven stats PLAN` prints them,
+  the wizard has a Statistics page with charts, and the delivery report has a Statistics
+  section.
+- Charts drawn in Ruby as SVG, with no JavaScript: a burn-up of criteria merged and proven,
+  a timeline of each ticket, the split between agents and people, and a bar of every
+  criterion's result. The delivery report writes them next to the Markdown, so GitHub shows
+  them, and inlines them in the HTML and the PDF.
+
+### Changed
+
+- The delivery report has colour: every acceptance criterion's result is a green, red, amber
+  or grey pill with a matching edge on its row, failed rows are tinted red, merged tickets are
+  marked green, and the Markdown shows ✅, ❌, ⏸️ or ⚠️ before each result.
+- The README and the gem description say up front that the whole process runs from the
+  browser wizard or the terminal, whichever you prefer.
+
 ## [0.2.0] - 2026-09-30
 
 ### Added
@@ -125,6 +148,7 @@ First public release.
 - `plan-driven doctor` checks keys, the repository, the PDF browser, the Cursor API, the agent
   model, and Node and the SDK for `:cursor`.
 
-[Unreleased]: https://github.com/blaz1988/plan-driven/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/blaz1988/plan-driven/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/blaz1988/plan-driven/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/blaz1988/plan-driven/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/blaz1988/plan-driven/releases/tag/v0.1.0

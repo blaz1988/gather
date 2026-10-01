@@ -6,11 +6,16 @@
 [![Ruby](https://img.shields.io/badge/Ruby-3.1%20to%203.4-CC342D.svg)](#rails-and-ruby-support)
 [![Rails](https://img.shields.io/badge/Rails-7.0%20to%208.1-D30001.svg)](#rails-and-ruby-support)
 
-**From implementation plan to merged, tested pull requests, driven from the terminal.**
+**From implementation plan to merged, tested pull requests, driven from the browser or the terminal.**
 
-`plan_driven` runs a Rails team's delivery process from the command line, with AI agents doing
-the writing and your team making the decisions. A short interview in the terminal becomes an
-implementation plan grounded in your real schema and code. Guards written in Ruby check the
+`plan_driven` runs a Rails team's delivery process inside your Rails app, with AI agents doing
+the writing and your team making the decisions. Drive it the way you prefer: click through the
+[wizard in the browser](#the-browser-wizard), mounted at `/plan_driven` in development, or type
+the same steps in the [terminal](#commands). Every button in the wizard runs one `plan-driven`
+command and shows it to you, so both are the same process, with the same rules and the same
+audit trail, and you can switch between them at any step.
+
+A short interview becomes an implementation plan grounded in your real schema and code. Guards written in Ruby check the
 plan, you read it and approve it. The approved plan becomes tickets, each ticket goes to a
 Cursor cloud agent that opens a pull request, and only the pull requests you approve are
 merged. Acceptance criteria map to Cucumber scenarios, so the delivery report shows which
@@ -115,6 +120,7 @@ repository. The planner and the five agents ran on Claude Opus 5.5 through Curso
 - [Configuration](#configuration)
 - [Choosing the coding agents](#choosing-the-coding-agents)
 - [Tokens and cost](#tokens-and-cost)
+- [Statistics](#statistics)
 - [How it compares](#how-it-compares)
 - [Keys](#keys)
 - [Working as a team](#working-as-a-team)
@@ -717,8 +723,9 @@ $ bin/plan-driven report PD-1
 
 `evidence` runs the plan's scenarios on your machine and stores the result with the commit it
 ran on; `--from cucumber.json` imports a run from CI instead. The delivery report lists each
-ticket with its pull request, merge commit and approver, then every acceptance criterion with
-the scenario that proves it, the guard findings, every approval and the full timeline. Commit
+ticket with its pull request, merge commit and approver, the [statistics](#statistics) with
+their charts, then every acceptance criterion with the scenario that proves it, marked passed
+or failed in colour, the guard findings, every approval and the full timeline. Commit
 `docs/plans/` with it, and the plan and its proof stay next to the code.
 
 ![The delivery report](docs/images/15-delivery-report.png)
@@ -840,6 +847,7 @@ key such as `PD-1`, and `PLAN/TICKET` is a ticket such as `PD-1/T3`.
 | `report PLAN` | Write the delivery report |
 | `log PLAN` | The audit trail |
 | `usage PLAN` | Tokens, time and cost per step and per agent run |
+| `stats PLAN` | Where the time went: phases, agents and people, each ticket |
 | `questions` | The interview's questions, and which ones the team changed or added |
 | `question KEY [--title T] [--ask Q] [--group G] [--required \| --optional] [--remove]` | Change or add an interview question, or put it back |
 | `configure` | Store keys in `~/.plan_driven/config` |
@@ -984,6 +992,90 @@ For scale, these are the five cloud agents from the demo, read back from Cursor'
 94% of the tokens are cache reads, which cost a fraction of fresh input, and only 75 thousand
 are code and text the agents wrote. Most of an agent's tokens go into reading the codebase, so
 a small, conventional one is cheaper to work on.
+
+## Statistics
+
+Where did the time go? Was it the agents writing code, or the pull requests waiting for a
+person? The same numbers are in three places:
+
+- **In the wizard:** every plan has a Statistics page, linked under its title and from the
+  Proof & report step. In development that's `http://localhost:3000/plan_driven/plans/PD-1/statistics`.
+- **In the terminal:** `bin/plan-driven stats PD-1`.
+- **In the delivery report:** a Statistics section with the same charts, in the Markdown, the
+  HTML and the PDF.
+
+![The Statistics page in the wizard, for a delivered plan](docs/images/statistics.png)
+
+This is PD-3 from the demo: six tickets delivered in 1 h 20 min, 42 of 42 criteria proven.
+
+- **Cards:** idea to delivery, development time, criteria proven, pull requests approved the
+  first time, the agents' share of the work, and tokens.
+- **Acceptance criteria, merged and proven:** a burn-up against the plan's scope. The blue
+  line rises as each ticket merges with its criteria, and the green line rises when an
+  evidence run proves them. Every run is a dot, red when it failed. Here, two runs failed
+  around 14:50 and the third proved all 42.
+- **Where the time went, ticket by ticket:** one row per ticket on a shared clock. Grey is
+  queued, waiting for the tickets it depends on. Blue is an agent coding, amber is the pull
+  request waiting for review, purple is an agent fixing feedback, and green is approved but
+  not merged. T3 has one round of feedback, and each ticket waited for the one before it.
+- **Agents and people:** how the time tickets were worked on splits. Here agents took 91% of
+  it and reviews took 7%. On a plan where the donut is mostly amber, the bottleneck is review,
+  not code.
+- **Ticket by ticket, and the phases:** the same times as a table, with the estimate and the
+  review rounds, and how long planning, tickets, development and proof took.
+
+```
+$ bin/plan-driven stats PD-3
+PD-3 Comments on events: statistics
+  Planning              2 min
+  Tickets               2 min
+  Development           1 h 20 min
+  Proof                 10 min
+  Idea to delivery      1 h 25 min
+  Tickets merged        6 of 6, 5 approved the first time
+✓ 42 of 42 acceptance criteria proven
+
+Where the time went while tickets were worked on (agents 91%):
+  Agent coding           1 h 2 min  ████████████████████ 79%
+  Waiting for review         5 min  ██ 7%
+  Agent fixing feedback      9 min  ███ 12%
+  Approved, not merged       1 min  █ 2%
+
+#   Est  Queued      Agent   Review  Fixes  Merge  Rounds  Total
+T1  2    53s         10 min  4 min   -      23s    0       16 min
+T2  2    17 min      10 min  8s      -      12s    0       10 min
+T3  3    28 min      11 min  28s     9 min  10s    1       21 min
+...
+```
+
+### How it's worked out
+
+Nothing is estimated, and no model is asked. Every number is the time between two events that
+plan-driven already records in the audit trail:
+
+| From | To | Counts as |
+| --- | --- | --- |
+| `tickets.approved` | `ticket.agent_started` | Queued |
+| `ticket.agent_started` | `ticket.pr_opened` | Agent coding |
+| `ticket.pr_opened` | `ticket.pr_approved` or `ticket.changes_requested` | Waiting for review |
+| `ticket.changes_requested` | the next `ticket.pr_opened` | Agent fixing feedback |
+| `ticket.pr_approved` | `ticket.merged` | Approved, not merged |
+
+The phases run from `plan.drafted` to the last `plan.approved` (planning), then to
+`tickets.approved` (tickets), then to `plan.delivered` (development), then to the first
+passing evidence run (proof). A plan still in development is counted up to now. A plan whose
+tickets aren't approved yet shows only its planning time.
+
+The charts are SVG drawn in Ruby, with no JavaScript and nothing to install. `report` writes
+them next to `delivery-report.md` (`statistics-burnup.svg`, `statistics-timeline.svg`,
+`statistics-time.svg`, `statistics-proof.svg`), so GitHub shows them in the Markdown, and it
+inlines them in the HTML and the PDF so both stand alone.
+
+The report also marks every acceptance criterion's result in colour: a green, red, amber or
+grey pill with a matching edge on its row, and failed rows tinted red. On GitHub, the Markdown
+shows ✅, ❌, ⏸️ or ⚠️ instead.
+
+![Acceptance criteria and proof in the delivery report](docs/images/statistics-report.png)
 
 ## How it compares
 
